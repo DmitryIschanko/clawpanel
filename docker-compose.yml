@@ -19,7 +19,7 @@ services:
       - RATE_LIMIT_MAX=100
     volumes:
       - backend-data:/data
-      - /root/.openclaw:/root/.openclaw:ro
+      - /root/.openclaw/skills:/root/.openclaw/skills
     ports:
       - "127.0.0.1:3000:3000"
     restart: unless-stopped

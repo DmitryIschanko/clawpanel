@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from 'react-query'
-import { Plus, Puzzle, Upload, Trash2, AlertTriangle, Loader2, Search, ExternalLink } from 'lucide-react'
+import { Plus, Puzzle, Upload, Trash2, AlertTriangle, Loader2, Search, ExternalLink, CheckCircle2, XCircle, RefreshCw } from 'lucide-react'
 import { skillsApi } from '../services/api'
 import type { Skill } from '../types'
 
@@ -22,6 +22,7 @@ export function SkillsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<ClawHubResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
+  const [installStatus, setInstallStatus] = useState<{show: boolean; message: string; type: 'success' | 'error'}>({show: false, message: '', type: 'success'})
   
   const { data: skills, isLoading, refetch } = useQuery<Skill[]>('skills', async () => {
     const response = await skillsApi.list()
@@ -29,16 +30,48 @@ export function SkillsPage() {
   })
 
   const handleInstall = async (name: string) => {
-    await skillsApi.install(name)
-    refetch()
+    try {
+      const response = await skillsApi.install(name)
+      const { openclawInstalled, gatewayRestarted } = response.data.data
+      
+      let message = `Skill "${name}" installed successfully`
+      if (openclawInstalled && gatewayRestarted) {
+        message += '. Gateway restarted and skill is now active!'
+      } else if (openclawInstalled) {
+        message += '. Gateway restart failed - skill will be active after next restart.'
+      }
+      
+      setInstallStatus({ show: true, message, type: 'success' })
+      setTimeout(() => setInstallStatus(prev => ({ ...prev, show: false })), 5000)
+      refetch()
+    } catch (error) {
+      setInstallStatus({ show: true, message: `Failed to install skill: ${error}`, type: 'error' })
+      setTimeout(() => setInstallStatus(prev => ({ ...prev, show: false })), 5000)
+    }
   }
 
   const handleClawHubInstall = async () => {
     if (!clawHubSkillName) return
-    await skillsApi.install(clawHubSkillName)
-    setIsClawHubModalOpen(false)
-    setClawHubSkillName('')
-    refetch()
+    try {
+      const response = await skillsApi.install(clawHubSkillName)
+      const { openclawInstalled, gatewayRestarted } = response.data.data
+      
+      let message = `Skill "${clawHubSkillName}" installed successfully`
+      if (openclawInstalled && gatewayRestarted) {
+        message += '. Gateway restarted and skill is now active!'
+      } else if (openclawInstalled) {
+        message += '. Gateway restart failed - skill will be active after next restart.'
+      }
+      
+      setInstallStatus({ show: true, message, type: 'success' })
+      setTimeout(() => setInstallStatus(prev => ({ ...prev, show: false })), 5000)
+      setIsClawHubModalOpen(false)
+      setClawHubSkillName('')
+      refetch()
+    } catch (error) {
+      setInstallStatus({ show: true, message: `Failed to install skill: ${error}`, type: 'error' })
+      setTimeout(() => setInstallStatus(prev => ({ ...prev, show: false })), 5000)
+    }
   }
 
   const handleSearch = async () => {
@@ -70,6 +103,21 @@ export function SkillsPage() {
 
   return (
     <div className="space-y-6">
+      {installStatus.show && (
+        <div className={`p-4 rounded-lg flex items-center gap-3 ${
+          installStatus.type === 'success' 
+            ? 'bg-green-500/10 border border-green-500/20 text-green-500' 
+            : 'bg-red-500/10 border border-red-500/20 text-red-500'
+        }`}>
+          {installStatus.type === 'success' ? (
+            <CheckCircle2 className="w-5 h-5" />
+          ) : (
+            <AlertTriangle className="w-5 h-5" />
+          )}
+          <span>{installStatus.message}</span>
+        </div>
+      )}
+      
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Skills</h1>
@@ -143,15 +191,28 @@ export function SkillsPage() {
               <p className="text-sm text-muted-foreground mt-3">{skill.description || 'No description'}</p>
               
               <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full ${
-                    skill.enabled
-                      ? 'bg-green-500/10 text-green-500'
-                      : 'bg-muted text-muted-foreground'
-                  }`}
-                >
-                  {skill.enabled ? 'Enabled' : 'Disabled'}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full ${
+                      skill.enabled
+                        ? 'bg-green-500/10 text-green-500'
+                        : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {skill.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                  {skill.openclaw?.installed ? (
+                    <span className="text-xs flex items-center gap-1 text-green-500" title={`Installed at: ${skill.openclaw.path}`}>
+                      <CheckCircle2 className="w-3 h-3" />
+                      OpenClaw
+                    </span>
+                  ) : (
+                    <span className="text-xs flex items-center gap-1 text-yellow-500" title="Not installed in OpenClaw">
+                      <XCircle className="w-3 h-3" />
+                      OpenClaw
+                    </span>
+                  )}
+                </div>
                 {skill.source === 'clawhub' && (
                   <a
                     href={`https://clawhub.ai/skill/${skill.name}`}

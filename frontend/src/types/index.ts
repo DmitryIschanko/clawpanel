@@ -65,6 +65,12 @@ export interface Skill {
     hasExternalFetch?: boolean
     hasEval?: boolean
   }
+  openclaw?: {
+    installed: boolean
+    path?: string
+    files?: string[]
+  }
+  gatewayRestarted?: boolean
 }
 
 export interface Chain {

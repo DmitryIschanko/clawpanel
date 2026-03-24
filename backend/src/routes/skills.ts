@@ -7,10 +7,166 @@ import { auditLog } from '../middleware/audit';
 import { logger } from '../utils/logger';
 import https from 'https';
 import AdmZip from 'adm-zip';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { spawn } from 'child_process';
 
 const router = Router();
 
 const CLAWHUB_API = 'clawhub.ai';
+
+// Get OpenClaw skills directory
+function getOpenClawSkillsDir(): string | null {
+  // Try common locations
+  const candidates = [
+    path.join(os.homedir(), '.openclaw', 'skills'),
+    '/root/.openclaw/skills',
+    '/home/openclaw/.openclaw/skills',
+  ];
+  
+  for (const dir of candidates) {
+    if (fs.existsSync(path.dirname(dir))) {
+      return dir;
+    }
+  }
+  
+  // Default to ~/.openclaw/skills
+  return path.join(os.homedir(), '.openclaw', 'skills');
+}
+
+// Check if skill is installed in OpenClaw
+function checkOpenClawSkillStatus(slug: string): { installed: boolean; path?: string; files?: string[] } {
+  try {
+    const skillsDir = getOpenClawSkillsDir();
+    if (!skillsDir) {
+      return { installed: false };
+    }
+
+    const skillDir = path.join(skillsDir, slug);
+    if (!fs.existsSync(skillDir)) {
+      return { installed: false };
+    }
+
+    const files = fs.readdirSync(skillDir);
+    return { 
+      installed: true, 
+      path: skillDir,
+      files 
+    };
+  } catch (error) {
+    logger.error(`Failed to check OpenClaw skill status: ${error}`);
+    return { installed: false };
+  }
+}
+
+// Restart OpenClaw Gateway to load new skills
+async function restartGateway(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sshHost = process.env.SSH_HOST || 'host.docker.internal';
+    const sshUser = process.env.SSH_USER || 'root';
+    const sshKeyPath = process.env.SSH_KEY_PATH || '/root/.ssh/id_ed25519';
+    
+    logger.info(`Restarting OpenClaw Gateway via SSH to ${sshUser}@${sshHost}...`);
+    
+    const ssh = spawn('ssh', [
+      '-i', sshKeyPath,
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'UserKnownHostsFile=/dev/null',
+      '-o', 'LogLevel=ERROR',
+      '-p', '22',
+      `${sshUser}@${sshHost}`,
+      'sudo systemctl restart openclaw-gateway && sleep 2 && sudo systemctl is-active openclaw-gateway'
+    ]);
+    
+    let stdout = '';
+    let stderr = '';
+    
+    ssh.stdout.on('data', (data) => {
+      stdout += data.toString();
+      logger.info(`Gateway restart: ${data.toString().trim()}`);
+    });
+    
+    ssh.stderr.on('data', (data) => {
+      stderr += data.toString();
+      logger.warn(`Gateway restart stderr: ${data.toString().trim()}`);
+    });
+    
+    ssh.on('close', (code) => {
+      if (code === 0 && stdout.includes('active')) {
+        logger.info('OpenClaw Gateway restarted successfully');
+        resolve(true);
+      } else {
+        logger.error(`Failed to restart Gateway: exit code ${code}`);
+        resolve(false);
+      }
+    });
+    
+    ssh.on('error', (err) => {
+      logger.error(`SSH error while restarting Gateway: ${err.message}`);
+      resolve(false);
+    });
+    
+    // Timeout after 15 seconds
+    setTimeout(() => {
+      ssh.kill();
+      logger.error('Gateway restart timed out');
+      resolve(false);
+    }, 15000);
+  });
+}
+
+// Install skill files to OpenClaw directory
+async function installSkillToOpenClaw(slug: string, zipBuffer: Buffer): Promise<boolean> {
+  try {
+    const skillsDir = getOpenClawSkillsDir();
+    if (!skillsDir) {
+      logger.warn('OpenClaw skills directory not found');
+      return false;
+    }
+
+    const skillDir = path.join(skillsDir, slug);
+    
+    // Create skills directory if it doesn't exist
+    if (!fs.existsSync(skillsDir)) {
+      fs.mkdirSync(skillsDir, { recursive: true });
+      logger.info(`Created OpenClaw skills directory: ${skillsDir}`);
+    }
+
+    // Remove existing skill directory if exists
+    if (fs.existsSync(skillDir)) {
+      fs.rmSync(skillDir, { recursive: true, force: true });
+      logger.info(`Removed existing skill directory: ${skillDir}`);
+    }
+
+    // Create skill directory
+    fs.mkdirSync(skillDir, { recursive: true });
+
+    // Extract ZIP
+    const zip = new AdmZip(zipBuffer);
+    const entries = zip.getEntries();
+
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      
+      const entryPath = path.join(skillDir, entry.entryName);
+      const entryDir = path.dirname(entryPath);
+      
+      if (!fs.existsSync(entryDir)) {
+        fs.mkdirSync(entryDir, { recursive: true });
+      }
+      
+      fs.writeFileSync(entryPath, entry.getData());
+      logger.info(`Extracted: ${entry.entryName} -> ${entryPath}`);
+    }
+
+    logger.info(`Skill ${slug} installed to OpenClaw: ${skillDir}`);
+    return true;
+  } catch (error) {
+    logger.error(`Failed to install skill to OpenClaw: ${error}`);
+    return false;
+  }
+}
 
 // Fetch skill from ClawHub API and extract SKILL.md
 async function fetchSkillFromClawHub(slug: string): Promise<{ name: string; content: string; description: string } | null> {
@@ -149,12 +305,19 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const skills = db.prepare('SELECT * FROM skills ORDER BY created_at DESC').all();
   
-  res.json({
-    success: true,
-    data: skills.map(s => ({
+  // Check OpenClaw installation status for each skill
+  const skillsWithStatus = skills.map(s => {
+    const openclawStatus = checkOpenClawSkillStatus(s.name);
+    return {
       ...s,
       security_flags: s.security_flags ? JSON.parse(s.security_flags) : {},
-    })),
+      openclaw: openclawStatus,
+    };
+  });
+  
+  res.json({
+    success: true,
+    data: skillsWithStatus,
   });
 }));
 
@@ -200,15 +363,6 @@ router.post('/install', authenticateToken, requireAdmin, auditLog('install', 'sk
     throw new ValidationError('Skill name is required');
   }
 
-  // Try to fetch from ClawHub
-  let skillData: { name: string; content: string; description: string } | null = null;
-  
-  try {
-    skillData = await fetchSkillFromClawHub(name);
-  } catch (error) {
-    logger.error('Failed to fetch from ClawHub:', error);
-  }
-
   const db = getDatabase();
   
   // Check if skill already exists
@@ -217,8 +371,57 @@ router.post('/install', authenticateToken, requireAdmin, auditLog('install', 'sk
     throw new ValidationError('Skill already installed');
   }
 
+  // Fetch full ZIP from ClawHub for OpenClaw installation
+  let zipBuffer: Buffer | null = null;
+  try {
+    zipBuffer = await new Promise<Buffer | null>((resolve, reject) => {
+      const options = {
+        hostname: CLAWHUB_API,
+        path: `/api/v1/download?slug=${encodeURIComponent(name)}&format=skill`,
+        method: 'GET',
+        headers: { 'User-Agent': 'ClawPanel/1.0' },
+      };
+
+      const req = https.request(options, (res) => {
+        if (res.statusCode !== 200) {
+          resolve(null);
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+      });
+
+      req.on('error', () => resolve(null));
+      req.setTimeout(15000, () => { req.destroy(); resolve(null); });
+      req.end();
+    });
+  } catch (error) {
+    logger.error('Failed to download ZIP from ClawHub:', error);
+  }
+
+  // Try to fetch metadata for database
+  let skillData: { name: string; content: string; description: string } | null = null;
+  try {
+    skillData = await fetchSkillFromClawHub(name);
+  } catch (error) {
+    logger.error('Failed to fetch metadata from ClawHub:', error);
+  }
+
+  // Install to OpenClaw filesystem
+  let openclawInstalled = false;
+  let gatewayRestarted = false;
+  if (zipBuffer) {
+    openclawInstalled = await installSkillToOpenClaw(name, zipBuffer);
+    
+    // Restart Gateway to load the new skill
+    if (openclawInstalled) {
+      gatewayRestarted = await restartGateway();
+    }
+  }
+
   if (skillData) {
-    // Save downloaded skill
+    // Save to ClawPanel database
     const result = db.prepare(`
       INSERT INTO skills (name, description, source, path, content, enabled)
       VALUES (?, ?, 'clawhub', ?, ?, 1)
@@ -235,6 +438,8 @@ router.post('/install', authenticateToken, requireAdmin, auditLog('install', 'sk
         id: result.lastInsertRowid,
         name: skillData.name,
         description: skillData.description,
+        openclawInstalled,
+        gatewayRestarted,
       },
     });
   } else {
@@ -253,6 +458,7 @@ router.post('/install', authenticateToken, requireAdmin, auditLog('install', 'sk
       data: { 
         id: result.lastInsertRowid,
         name,
+        openclawInstalled,
         warning: 'Skill metadata saved but content download may require manual setup',
       },
     });
