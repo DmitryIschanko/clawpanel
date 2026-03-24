@@ -204,6 +204,87 @@ RUN chmod 600 /root/.ssh/id_ed25519 && \
     chmod 644 /root/.ssh/id_ed25519.pub
 ```
 
+## ClawHub Integration
+
+ClawPanel integrates with **ClawHub** (https://clawhub.ai) to search and install skills.
+
+### API Endpoints
+
+```
+Base URL: https://clawhub.ai/api/v1
+
+GET  /search?q={query}     - Search skills by name/description
+GET  /download/{name}      - Download skill as ZIP file
+```
+
+### Search Response Format
+
+```json
+{
+  "success": true,
+  "data": {
+    "results": [
+      {
+        "name": "skill-name",
+        "description": "Skill description",
+        "version": "1.0.0",
+        "author": "author-name",
+        "downloads": 1234,
+        "rating": 4.5
+      }
+    ]
+  }
+}
+```
+
+### Installation Process
+
+1. **Search** - Query `/search?q={query}` for skills
+2. **Download** - Fetch ZIP from `/download/{name}`
+3. **Extract** - Use `adm-zip` to extract contents
+4. **Parse SKILL.md** - Extract metadata and documentation
+5. **Store** - Save to SQLite with `source: 'clawhub'`
+
+### Skill Storage
+
+```sql
+CREATE TABLE skills (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,
+  description TEXT,
+  source TEXT,          -- 'clawhub', 'local', 'github'
+  content TEXT,         -- SKILL.md content
+  path TEXT,            -- relative path: skills/{name}
+  enabled BOOLEAN DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Backend Implementation
+
+```typescript
+// Search ClawHub
+const response = await axios.get(
+  `https://clawhub.ai/api/v1/search?q=${query}`,
+  { timeout: 10000 }
+);
+
+// Download and install
+const zipResponse = await axios.get(
+  `https://clawhub.ai/api/v1/download/${name}`,
+  { responseType: 'arraybuffer', timeout: 30000 }
+);
+
+const zip = new AdmZip(zipResponse.data);
+const entries = zip.getEntries();
+
+// Extract SKILL.md
+const skillEntry = entries.find(
+  e => e.entryName.toLowerCase() === 'skill.md'
+);
+const content = skillEntry ? zip.readAsText(skillEntry) : null;
+```
+
 ## Environment Variables
 
 ```bash
@@ -318,6 +399,15 @@ docker compose up -d
 - `GET /api/chains` - List chains
 - `POST /api/chains` - Create chain
 - Similar CRUD pattern
+
+### Skills
+- `GET /api/skills` - List installed skills
+- `GET /api/skills/clawhub/search?q={query}` - Search ClawHub
+- `POST /api/skills/install` - Install from ClawHub `{name}`
+- `POST /api/skills` - Create local skill
+- `GET /api/skills/:id` - Get skill
+- `PUT /api/skills/:id` - Update skill
+- `DELETE /api/skills/:id` - Delete skill
 
 ## Docker Commands
 

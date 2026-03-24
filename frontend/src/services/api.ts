@@ -115,6 +115,7 @@ export const sessionsApi = {
 export const skillsApi = {
   list: () => api.get('/skills'),
   get: (id: number) => api.get(`/skills/${id}`),
+  search: (query: string) => api.get(`/skills/search?q=${encodeURIComponent(query)}`),
   install: (name: string) => api.post('/skills/install', { name }),
   upload: (name: string, content: string) =>
     api.post('/skills/upload', { name, content }),

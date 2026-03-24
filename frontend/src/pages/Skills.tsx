@@ -1,13 +1,27 @@
 import { useState } from 'react'
 import { useQuery } from 'react-query'
-import { Plus, Puzzle, Upload, Trash2, AlertTriangle, Loader2 } from 'lucide-react'
+import { Plus, Puzzle, Upload, Trash2, AlertTriangle, Loader2, Search, ExternalLink } from 'lucide-react'
 import { skillsApi } from '../services/api'
 import type { Skill } from '../types'
 
+interface ClawHubResult {
+  slug: string;
+  displayName: string;
+  summary: string;
+  version?: string;
+  updatedAt: number;
+}
+
 export function SkillsPage() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
+  const [isClawHubModalOpen, setIsClawHubModalOpen] = useState(false)
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
   const [newSkillName, setNewSkillName] = useState('')
   const [newSkillContent, setNewSkillContent] = useState('')
+  const [clawHubSkillName, setClawHubSkillName] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<ClawHubResult[]>([])
+  const [isSearching, setIsSearching] = useState(false)
   
   const { data: skills, isLoading, refetch } = useQuery<Skill[]>('skills', async () => {
     const response = await skillsApi.list()
@@ -17,6 +31,26 @@ export function SkillsPage() {
   const handleInstall = async (name: string) => {
     await skillsApi.install(name)
     refetch()
+  }
+
+  const handleClawHubInstall = async () => {
+    if (!clawHubSkillName) return
+    await skillsApi.install(clawHubSkillName)
+    setIsClawHubModalOpen(false)
+    setClawHubSkillName('')
+    refetch()
+  }
+
+  const handleSearch = async () => {
+    if (!searchQuery) return
+    setIsSearching(true)
+    try {
+      const response = await skillsApi.search(searchQuery)
+      setSearchResults(response.data.data || [])
+    } catch (error) {
+      console.error('Search failed:', error)
+    }
+    setIsSearching(false)
   }
 
   const handleUpload = async () => {
@@ -50,7 +84,14 @@ export function SkillsPage() {
             Upload
           </button>
           <button
-            onClick={() => handleInstall('example-skill')}
+            onClick={() => setIsSearchModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80"
+          >
+            <Search className="w-4 h-4" />
+            Search ClawHub
+          </button>
+          <button
+            onClick={() => setIsClawHubModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
           >
             <Plus className="w-4 h-4" />
@@ -111,6 +152,16 @@ export function SkillsPage() {
                 >
                   {skill.enabled ? 'Enabled' : 'Disabled'}
                 </span>
+                {skill.source === 'clawhub' && (
+                  <a
+                    href={`https://clawhub.ai/skill/${skill.name}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs flex items-center gap-1 text-primary hover:underline"
+                  >
+                    View on ClawHub <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
               </div>
             </div>
           ))}
@@ -147,6 +198,131 @@ export function SkillsPage() {
                 className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 Upload
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isClawHubModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md">
+            <h2 className="text-lg font-semibold mb-2">Install from ClawHub</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Enter the skill name from ClawHub repository
+            </p>
+            <input
+              type="text"
+              placeholder="e.g., web-search, calculator, file-reader..."
+              value={clawHubSkillName}
+              onChange={(e) => setClawHubSkillName(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-secondary border border-border mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setIsClawHubModalOpen(false)}
+                className="px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleClawHubInstall}
+                disabled={!clawHubSkillName}
+                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                Install
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isSearchModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+            <h2 className="text-lg font-semibold mb-4">Search ClawHub</h2>
+            <div className="flex gap-2 mb-4">
+              <input
+                type="text"
+                placeholder="Search skills... (e.g., web, search, fetch)"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                className="flex-1 px-3 py-2 rounded-lg bg-secondary border border-border"
+              />
+              <button
+                onClick={handleSearch}
+                disabled={isSearching || !searchQuery}
+                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
+              >
+                {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                Search
+              </button>
+            </div>
+
+            {searchResults.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Found {searchResults.length} skills
+                </p>
+                {searchResults.map((result) => (
+                  <div
+                    key={result.slug}
+                    className="border border-border rounded-lg p-4 hover:bg-secondary/50 transition-colors"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold">{result.displayName}</h3>
+                          <span className="text-xs text-muted-foreground">({result.slug})</span>
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                          {result.summary}
+                        </p>
+                        <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                          {result.version && <span>v{result.version}</span>}
+                          <span>Updated: {new Date(result.updatedAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 ml-4">
+                        <a
+                          href={`https://clawhub.ai/skill/${result.slug}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 rounded-lg bg-secondary hover:bg-secondary/80"
+                          title="View on ClawHub"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                        <button
+                          onClick={() => {
+                            handleInstall(result.slug)
+                            setIsSearchModalOpen(false)
+                          }}
+                          className="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+                          title="Install"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {searchResults.length === 0 && !isSearching && searchQuery && (
+              <p className="text-center text-muted-foreground py-8">
+                No skills found. Try a different search term.
+              </p>
+            )}
+
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => setIsSearchModalOpen(false)}
+                className="px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80"
+              >
+                Close
               </button>
             </div>
           </div>
