@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { useQuery } from 'react-query'
-import { Bot, Save, Loader2 } from 'lucide-react'
+import { useQuery, useQueryClient } from 'react-query'
+import { Bot, Save, Loader2, CheckCircle2 } from 'lucide-react'
 import Editor from '@monaco-editor/react'
 import { agentsApi } from '../services/api'
 import type { Agent } from '../types'
@@ -9,11 +9,23 @@ import type { Agent } from '../types'
 export function AgentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const isNew = id === 'new'
+  const queryClient = useQueryClient()
   
   const [activeTab, setActiveTab] = useState<'general' | 'prompt' | 'soul'>('general')
   const [agentsMd, setAgentsMd] = useState('')
   const [soulMd, setSoulMd] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  
+  // General form state
+  const [formData, setFormData] = useState({
+    name: '',
+    role: '',
+    description: '',
+    model: '',
+    temperature: 0.7,
+    max_tokens: 4096,
+  })
 
   const { data: agent, isLoading } = useQuery<Agent>(
     ['agent', id],
@@ -24,6 +36,20 @@ export function AgentDetailPage() {
     },
     { enabled: !isNew }
   )
+
+  // Load agent data into form
+  useEffect(() => {
+    if (agent) {
+      setFormData({
+        name: agent.name || '',
+        role: agent.role || '',
+        description: agent.description || '',
+        model: agent.model || '',
+        temperature: agent.temperature ?? 0.7,
+        max_tokens: agent.max_tokens ?? 4096,
+      })
+    }
+  }, [agent])
 
   // Load AGENTS.md
   useQuery(
@@ -53,12 +79,29 @@ export function AgentDetailPage() {
     if (isNew) return
     
     setIsSaving(true)
+    setSaveSuccess(false)
     try {
-      if (activeTab === 'prompt') {
+      if (activeTab === 'general') {
+        await agentsApi.update(Number(id), {
+          name: formData.name,
+          role: formData.role,
+          description: formData.description,
+          model: formData.model,
+          temperature: formData.temperature,
+          max_tokens: formData.max_tokens,
+        })
+        // Refresh agent data
+        queryClient.invalidateQueries(['agent', id])
+      } else if (activeTab === 'prompt') {
         await agentsApi.updateAgentsMd(Number(id), agentsMd)
       } else if (activeTab === 'soul') {
         await agentsApi.updateSoulMd(Number(id), soulMd)
       }
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 3000)
+    } catch (error) {
+      console.error('Save failed:', error)
+      alert('Failed to save changes')
     } finally {
       setIsSaving(false)
     }
@@ -84,23 +127,31 @@ export function AgentDetailPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold">
-              {isNew ? 'Create Agent' : agent?.name}
+              {isNew ? 'Create Agent' : (formData.name || agent?.name)}
             </h1>
             <p className="text-muted-foreground">
-              {isNew ? 'Configure your new agent' : agent?.description}
+              {isNew ? 'Configure your new agent' : (formData.description || agent?.description)}
             </p>
           </div>
         </div>
         
-        <button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-          <Save className="w-4 h-4" />
-          Save
-        </button>
+        <div className="flex items-center gap-3">
+          {saveSuccess && (
+            <span className="flex items-center gap-1 text-green-500 text-sm">
+              <CheckCircle2 className="w-4 h-4" />
+              Saved!
+            </span>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+            <Save className="w-4 h-4" />
+            Save
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -129,7 +180,8 @@ export function AgentDetailPage() {
                 <label className="block text-sm font-medium mb-1">Name</label>
                 <input
                   type="text"
-                  defaultValue={agent?.name}
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
                   placeholder="Agent name"
                 />
@@ -138,7 +190,8 @@ export function AgentDetailPage() {
                 <label className="block text-sm font-medium mb-1">Role</label>
                 <input
                   type="text"
-                  defaultValue={agent?.role}
+                  value={formData.role}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
                   placeholder="e.g., Developer"
                 />
@@ -147,7 +200,8 @@ export function AgentDetailPage() {
             <div>
               <label className="block text-sm font-medium mb-1">Description</label>
               <textarea
-                defaultValue={agent?.description}
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 rows={3}
                 className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
                 placeholder="Describe what this agent does..."
@@ -157,12 +211,14 @@ export function AgentDetailPage() {
               <div>
                 <label className="block text-sm font-medium mb-1">Model</label>
                 <select
-                  defaultValue={agent?.model}
+                  value={formData.model}
+                  onChange={(e) => setFormData({ ...formData, model: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
                 >
                   <option value="">Default</option>
                   <option value="anthropic/claude-opus-4">Claude Opus 4</option>
                   <option value="openai/gpt-4o">GPT-4o</option>
+                  <option value="kimi/kimi-code">Kimi Code</option>
                 </select>
               </div>
               <div>
@@ -172,7 +228,8 @@ export function AgentDetailPage() {
                   min={0}
                   max={2}
                   step={0.1}
-                  defaultValue={agent?.temperature || 0.7}
+                  value={formData.temperature}
+                  onChange={(e) => setFormData({ ...formData, temperature: parseFloat(e.target.value) })}
                   className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
                 />
               </div>
@@ -180,7 +237,8 @@ export function AgentDetailPage() {
                 <label className="block text-sm font-medium mb-1">Max Tokens</label>
                 <input
                   type="number"
-                  defaultValue={agent?.max_tokens || 4096}
+                  value={formData.max_tokens}
+                  onChange={(e) => setFormData({ ...formData, max_tokens: parseInt(e.target.value) })}
                   className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
                 />
               </div>
