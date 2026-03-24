@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Environment files (sensitive data)
+.env
+.env.local
+.env.production
+
+# SSH Keys (sensitive!)
+ssh-keys/
+backend/ssh-keys/
+*.pem
+*.key
+id_ed25519
+id_rsa
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+/data/
+backend-data/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Test results
+test-results/
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build outputs
+dist/
+build/
+*.tar.gz
+
+# Docker volumes
+volumes/
+
+# Playwright tests
+e2e-*.spec.ts
+test-ssh.js
+playwright.config.ts
+
+# Root package files (for testing only)
+/package.json
+/package-lock.json
