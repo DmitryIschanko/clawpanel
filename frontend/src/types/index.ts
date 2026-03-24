@@ -24,6 +24,11 @@ export interface Agent {
   delegate_to: string[]
   created_at: number
   updated_at: number
+  memory?: {
+    exists: boolean
+    path?: string
+    files?: string[]
+  }
 }
 
 export interface LLMProvider {

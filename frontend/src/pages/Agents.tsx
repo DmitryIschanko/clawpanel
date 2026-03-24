@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from 'react-query'
-import { Plus, Search, Bot, MoreVertical, Edit, Trash2, Loader2, Save, X } from 'lucide-react'
+import { Plus, Search, Bot, MoreVertical, Edit, Trash2, Loader2, Save, X, Brain, CheckCircle2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { agentsApi } from '../services/api'
 import { formatDate } from '../lib/utils'
@@ -164,9 +164,23 @@ function AgentCard({
         <span>T: {agent.temperature}</span>
       </div>
 
+      <div className="flex items-center gap-3 mt-3">
+        {agent.memory?.exists ? (
+          <span className="text-xs flex items-center gap-1 text-green-500" title={`Memory: ${agent.memory.path}`}>
+            <CheckCircle2 className="w-3 h-3" />
+            Memory ({agent.memory.files?.length || 0} files)
+          </span>
+        ) : (
+          <span className="text-xs flex items-center gap-1 text-yellow-500" title="No memory created">
+            <Brain className="w-3 h-3" />
+            No memory
+          </span>
+        )}
+      </div>
+
       <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
         <span className="text-xs text-muted-foreground">
-          Updated {formatDate(agent.updated_at)}
+          Updated {agent.updated_at ? formatDate(agent.updated_at * 1000) : 'Never'}
         </span>
         <Link
           to={`/agents/${agent.id}`}

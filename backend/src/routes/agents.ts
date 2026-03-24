@@ -4,8 +4,162 @@ import { authenticateToken, requireAdmin } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { auditLog } from '../middleware/audit';
+import { logger } from '../utils/logger';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 const router = Router();
+
+// Get agents directory (similar to OpenClaw structure)
+function getAgentsDir(): string {
+  // Try OpenClaw agents dir first
+  const openclawAgents = path.join(os.homedir(), '.openclaw', 'agents');
+  if (fs.existsSync(path.dirname(openclawAgents))) {
+    return openclawAgents;
+  }
+  // Fallback to ClawPanel agents dir
+  return path.join(os.homedir(), '.clawpanel', 'agents');
+}
+
+// Create agent memory structure similar to OpenClaw
+function createAgentMemory(agentId: string, agentName: string): { created: boolean; path: string } {
+  try {
+    const agentsDir = getAgentsDir();
+    const agentDir = path.join(agentsDir, `clawpanel-${agentId}`);
+    
+    // Create directory structure
+    const dirs = [
+      agentDir,
+      path.join(agentDir, 'agent'),
+      path.join(agentDir, 'sessions'),
+      path.join(agentDir, 'workspace'),
+      path.join(agentDir, 'memory'),
+    ];
+    
+    for (const dir of dirs) {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+    }
+    
+    // Create default config files
+    const configPath = path.join(agentDir, 'agent', 'config.json');
+    if (!fs.existsSync(configPath)) {
+      fs.writeFileSync(configPath, JSON.stringify({
+        name: agentName,
+        version: 1,
+        createdAt: new Date().toISOString(),
+        source: 'clawpanel',
+      }, null, 2));
+    }
+    
+    // Create AGENTS.md
+    const agentsMdPath = path.join(agentDir, 'AGENTS.md');
+    if (!fs.existsSync(agentsMdPath)) {
+      fs.writeFileSync(agentsMdPath, `# ${agentName}
+
+Agent created via ClawPanel.
+
+## System Prompt
+
+Add system prompt here.
+
+## Capabilities
+
+- Tool usage
+- Skill execution
+- Memory management
+`);
+    }
+    
+    // Create SOUL.md
+    const soulMdPath = path.join(agentDir, 'SOUL.md');
+    if (!fs.existsSync(soulMdPath)) {
+      fs.writeFileSync(soulMdPath, `# ${agentName} - Soul
+
+Personality and values configuration.
+
+## Core Values
+
+- Helpfulness
+- Accuracy
+- Efficiency
+
+## Communication Style
+
+Professional and friendly.
+`);
+    }
+    
+    // Create memory index
+    const memoryIndexPath = path.join(agentDir, 'memory', 'index.md');
+    if (!fs.existsSync(memoryIndexPath)) {
+      fs.writeFileSync(memoryIndexPath, `# Memory Index
+
+Agent: ${agentName}
+Created: ${new Date().toISOString()}
+
+## Topics
+
+`);
+    }
+    
+    logger.info(`Created agent memory structure at: ${agentDir}`);
+    return { created: true, path: agentDir };
+  } catch (error) {
+    logger.error(`Failed to create agent memory: ${error}`);
+    return { created: false, path: '' };
+  }
+}
+
+// Get agent memory info
+function getAgentMemory(agentId: string): { exists: boolean; path?: string; files?: string[] } {
+  try {
+    const agentsDir = getAgentsDir();
+    const agentDir = path.join(agentsDir, `clawpanel-${agentId}`);
+    
+    if (!fs.existsSync(agentDir)) {
+      return { exists: false };
+    }
+    
+    const files: string[] = [];
+    function scanDir(dir: string, prefix = '') {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          scanDir(path.join(dir, entry.name), relativePath);
+        } else {
+          files.push(relativePath);
+        }
+      }
+    }
+    scanDir(agentDir);
+    
+    return { exists: true, path: agentDir, files };
+  } catch (error) {
+    logger.error(`Failed to get agent memory: ${error}`);
+    return { exists: false };
+  }
+}
+
+// Delete agent memory
+function deleteAgentMemory(agentId: string): boolean {
+  try {
+    const agentsDir = getAgentsDir();
+    const agentDir = path.join(agentsDir, `clawpanel-${agentId}`);
+    
+    if (fs.existsSync(agentDir)) {
+      fs.rmSync(agentDir, { recursive: true, force: true });
+      logger.info(`Deleted agent memory: ${agentDir}`);
+    }
+    return true;
+  } catch (error) {
+    logger.error(`Failed to delete agent memory: ${error}`);
+    return false;
+  }
+}
 
 // List agents
 router.get('/', authenticateToken, asyncHandler(async (req, res) => {
@@ -31,27 +185,31 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   
   res.json({
     success: true,
-    data: agents.map((agent: any) => ({
-      id: agent.id,
-      name: agent.name,
-      avatar: agent.avatar,
-      role: agent.role,
-      description: agent.description,
-      color: agent.color,
-      model: agent.model,
-      fallbackModel: agent.fallback_model,
-      temperature: agent.temperature,
-      maxTokens: agent.max_tokens,
-      thinkingLevel: agent.thinking_level,
-      sandboxMode: agent.sandbox_mode === 1,
-      systemPrompt: agent.system_prompt,
-      status: agent.status,
-      skills: agent.skills ? JSON.parse(agent.skills) : [],
-      tools: agent.tools ? JSON.parse(agent.tools) : [],
-      delegateTo: agent.delegate_to ? JSON.parse(agent.delegate_to) : [],
-      createdAt: agent.created_at,
-      updatedAt: agent.updated_at,
-    })),
+    data: agents.map((agent: any) => {
+      const memory = getAgentMemory(agent.id.toString());
+      return {
+        id: agent.id,
+        name: agent.name,
+        avatar: agent.avatar,
+        role: agent.role,
+        description: agent.description,
+        color: agent.color,
+        model: agent.model,
+        fallbackModel: agent.fallback_model,
+        temperature: agent.temperature,
+        maxTokens: agent.max_tokens,
+        thinkingLevel: agent.thinking_level,
+        sandboxMode: agent.sandbox_mode === 1,
+        systemPrompt: agent.system_prompt,
+        status: agent.status,
+        skills: agent.skills ? JSON.parse(agent.skills) : [],
+        tools: agent.tools ? JSON.parse(agent.tools) : [],
+        delegateTo: agent.delegate_to ? JSON.parse(agent.delegate_to) : [],
+        createdAt: agent.created_at,
+        updatedAt: agent.updated_at,
+        memory: memory,
+      };
+    }),
   });
 }));
 
@@ -140,9 +298,16 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'agent'), a
     delegate_to ? JSON.stringify(delegate_to) : '[]'
   );
   
+  // Create agent memory structure
+  const memoryResult = createAgentMemory(result.lastInsertRowid.toString(), name);
+  
   res.status(201).json({
     success: true,
-    data: { id: result.lastInsertRowid },
+    data: { 
+      id: result.lastInsertRowid,
+      memoryCreated: memoryResult.created,
+      memoryPath: memoryResult.path,
+    },
   });
 }));
 
@@ -210,6 +375,9 @@ router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'agent
     throw new NotFoundError('Agent not found');
   }
   
+  // Delete agent memory
+  deleteAgentMemory(req.params.id);
+  
   res.json({
     success: true,
     message: 'Agent deleted successfully',
@@ -218,40 +386,110 @@ router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'agent
 
 // Get AGENTS.md content
 router.get('/:id/agents-md', authenticateToken, asyncHandler(async (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      content: '# Agent System Prompt\n\nThis is the AGENTS.md file for this agent.',
-    },
-  });
+  try {
+    const agentsDir = getAgentsDir();
+    const agentDir = path.join(agentsDir, `clawpanel-${req.params.id}`);
+    const agentsMdPath = path.join(agentDir, 'AGENTS.md');
+    
+    let content: string;
+    if (fs.existsSync(agentsMdPath)) {
+      content = fs.readFileSync(agentsMdPath, 'utf8');
+    } else {
+      content = '# Agent System Prompt\n\nThis is the AGENTS.md file for this agent.';
+    }
+    
+    res.json({
+      success: true,
+      data: { content },
+    });
+  } catch (error) {
+    res.json({
+      success: true,
+      data: {
+        content: '# Agent System Prompt\n\nThis is the AGENTS.md file for this agent.',
+      },
+    });
+  }
 }));
 
 // Update AGENTS.md content
 router.put('/:id/agents-md', authenticateToken, requireAdmin, auditLog('update', 'agents-md'), asyncHandler(async (req, res) => {
   const { content } = req.body;
-  res.json({
-    success: true,
-    message: 'AGENTS.md updated successfully',
-  });
+  
+  try {
+    const agentsDir = getAgentsDir();
+    const agentDir = path.join(agentsDir, `clawpanel-${req.params.id}`);
+    const agentsMdPath = path.join(agentDir, 'AGENTS.md');
+    
+    // Ensure directory exists
+    if (!fs.existsSync(agentDir)) {
+      fs.mkdirSync(agentDir, { recursive: true });
+    }
+    
+    fs.writeFileSync(agentsMdPath, content);
+    
+    res.json({
+      success: true,
+      message: 'AGENTS.md updated successfully',
+    });
+  } catch (error) {
+    logger.error(`Failed to update AGENTS.md: ${error}`);
+    throw new Error('Failed to update AGENTS.md');
+  }
 }));
 
 // Get SOUL.md content
 router.get('/:id/soul-md', authenticateToken, asyncHandler(async (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      content: '# Agent Soul\n\nPersonality and values.',
-    },
-  });
+  try {
+    const agentsDir = getAgentsDir();
+    const agentDir = path.join(agentsDir, `clawpanel-${req.params.id}`);
+    const soulMdPath = path.join(agentDir, 'SOUL.md');
+    
+    let content: string;
+    if (fs.existsSync(soulMdPath)) {
+      content = fs.readFileSync(soulMdPath, 'utf8');
+    } else {
+      content = '# Agent Soul\n\nPersonality and values.';
+    }
+    
+    res.json({
+      success: true,
+      data: { content },
+    });
+  } catch (error) {
+    res.json({
+      success: true,
+      data: {
+        content: '# Agent Soul\n\nPersonality and values.',
+      },
+    });
+  }
 }));
 
 // Update SOUL.md content
 router.put('/:id/soul-md', authenticateToken, requireAdmin, auditLog('update', 'soul-md'), asyncHandler(async (req, res) => {
   const { content } = req.body;
-  res.json({
-    success: true,
-    message: 'SOUL.md updated successfully',
-  });
+  
+  try {
+    const agentsDir = getAgentsDir();
+    const agentDir = path.join(agentsDir, `clawpanel-${req.params.id}`);
+    const soulMdPath = path.join(agentDir, 'SOUL.md');
+    
+    // Ensure directory exists
+    if (!fs.existsSync(agentDir)) {
+      fs.mkdirSync(agentDir, { recursive: true });
+    }
+    
+    fs.writeFileSync(soulMdPath, content);
+    
+    res.json({
+      success: true,
+      message: 'SOUL.md updated successfully',
+    });
+  } catch (error) {
+    logger.error(`Failed to update SOUL.md: ${error}`);
+    throw new Error('Failed to update SOUL.md');
+  }
 }));
 
 export default router;
