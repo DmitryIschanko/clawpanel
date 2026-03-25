@@ -6,172 +6,108 @@ Thank you for your interest in contributing to ClawPanel! This document provides
 
 ### Prerequisites
 
-- Node.js 20+
-- Docker 24.0+
-- Docker Compose 2.0+
-- OpenClaw Gateway installed locally
+- Node.js 24 LTS
+- Docker and Docker Compose
+- Git
 
-### Local Development
+### Quick Start
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/clawpanel.git
-   cd clawpanel
-   ```
+1. Fork and clone the repository:
+```bash
+git clone https://github.com/DmitryIschanko/clawpanel.git
+cd clawpanel
+```
 
-2. **Set up environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
+2. Start development environment:
+```bash
+docker compose up -d
+```
 
-3. **Start development servers**
-   ```bash
-   # Terminal 1: Backend
-   cd backend
-   npm install
-   npm run dev
-
-   # Terminal 2: Frontend
-   cd frontend
-   npm install
-   npm run dev
-   ```
-
-4. **Or use Docker**
-   ```bash
-   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-   ```
+3. View logs:
+```bash
+docker compose logs -f backend
+docker compose logs -f frontend
+```
 
 ## Project Structure
 
-```
-clawpanel/
-├── backend/           # Node.js + Express API
-│   ├── src/
-│   │   ├── routes/    # API route handlers
-│   │   ├── services/  # Business logic
-│   │   ├── websocket/ # WebSocket server
-│   │   └── database/  # Migrations and queries
-│   └── tests/
-├── frontend/          # React + TypeScript
-│   ├── src/
-│   │   ├── pages/     # Page components
-│   │   ├── components/# Reusable components
-│   │   └── services/  # API clients
-│   └── tests/
-└── nginx/             # Nginx configuration
-```
+- `backend/` - Node.js + Express + TypeScript API
+- `frontend/` - React + TypeScript + Vite SPA
+- `nginx/` - Reverse proxy configuration
 
-## Coding Standards
+## Code Style
 
 ### TypeScript
-
-- Use strict TypeScript where possible
-- Prefer `interface` over `type` for object shapes
-- Use explicit return types on public functions
+- Enable strict mode
+- Use explicit return types
+- No `any` types
+- Prefer interfaces over types
 
 ### React
+- Functional components with hooks
+- UseEffect cleanup functions required
+- Zustand for state management
+- Memoize expensive computations
 
-- Use functional components with hooks
-- Use React Query for server state
-- Use Zustand for client state
-- Prefer composition over inheritance
+### Error Handling
+Always handle errors explicitly:
+```typescript
+try {
+  const result = await operation();
+  return { ok: true, data: result };
+} catch (error) {
+  logger.error('Operation failed', { error });
+  return { ok: false, error: error.message };
+}
+```
 
-### Backend
+## Testing
 
-- Use async/await, avoid callbacks
-- Validate all inputs with Zod
-- Use Winston for logging
-- Handle errors gracefully
+Before submitting PR:
+1. Backend builds without errors
+2. Frontend builds without errors
+3. No TypeScript errors
+4. Test with multiple agents
+5. Verify no duplicate messages in chat
 
 ## Commit Messages
 
 Use conventional commits format:
+- `feat:` - New feature
+- `fix:` - Bug fix
+- `docs:` - Documentation
+- `style:` - Code style (formatting)
+- `refactor:` - Code refactoring
+- `test:` - Tests
+- `chore:` - Maintenance
 
+Example:
 ```
-feat: add new feature
-fix: fix bug in chat
-docs: update README
-style: fix formatting
-refactor: restructure code
-test: add tests
-chore: update dependencies
+feat: add SSH terminal with xterm.js
+
+- Add xterm.js for terminal emulation
+- Implement SSH connection via node-ssh
+- Add terminal page to sidebar
 ```
 
 ## Pull Request Process
 
-1. Create a feature branch from `main`
-   ```bash
-   git checkout -b feature/my-feature
-   ```
+1. Create feature branch from `main`
+2. Make changes following code style
+3. Test thoroughly
+4. Update documentation if needed
+5. Submit PR with clear description
 
-2. Make your changes and commit
+## Important Notes
 
-3. Push to your fork
-   ```bash
-   git push origin feature/my-feature
-   ```
+- Read `AGENTS.md` for implementation details
+- Never expose secrets in logs or responses
+- Always clean up WebSocket subscriptions
+- Test with multiple agents to ensure isolation
 
-4. Create a Pull Request with:
-   - Clear description of changes
-   - Screenshots (if UI changes)
-   - Test instructions
-   - Related issue numbers
+## Questions?
 
-## Testing
-
-### Backend Tests
-
-```bash
-cd backend
-npm test
-```
-
-### Frontend Tests
-
-```bash
-cd frontend
-npm test
-```
-
-### Integration Tests
-
-```bash
-docker compose -f docker-compose.test.yml up --abort-on-container-exit
-```
-
-## Code Review
-
-All submissions require review. We look for:
-
-- Code quality and readability
-- Test coverage
-- Documentation updates
-- Backwards compatibility
-- Security considerations
-
-## Reporting Issues
-
-### Bug Reports
-
-Include:
-- Clear description
-- Steps to reproduce
-- Expected vs actual behavior
-- Environment details (OS, versions)
-- Logs or screenshots
-
-### Feature Requests
-
-Include:
-- Use case description
-- Proposed solution
-- Alternatives considered
-
-## Security
-
-Report security vulnerabilities to security@clawpanel.dev instead of public issues.
+Open an issue or contact maintainers.
 
 ## License
 
