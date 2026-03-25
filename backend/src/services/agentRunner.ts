@@ -9,9 +9,10 @@ export function sendMessageToAgent(agentName: string, content: string): Promise<
   return new Promise((resolve, reject) => {
     // Map agent IDs to agent names in OpenClaw
     // ClawPanel agents are named clawpanel-{id} in OpenClaw
-    const fullAgentName = agentName.startsWith('clawpanel-') 
-      ? agentName 
-      : `clawpanel-${agentName}`;
+    const agentId = String(agentName);
+    const fullAgentName = agentId.startsWith('clawpanel-') 
+      ? agentId 
+      : `clawpanel-${agentId}`;
     
     logger.info(`Sending message to agent ${fullAgentName} via SSH/CLI`);
     
@@ -30,7 +31,7 @@ export function sendMessageToAgent(agentName: string, content: string): Promise<
       '-o', 'UserKnownHostsFile=/dev/null',
       '-p', sshPort,
       `${sshUser}@${sshHost}`,
-      `openclaw agent --agent ${fullAgentName} --prompt "${escapedContent}" --json`
+      `OPENCLAW_CONFIG_PATH=/root/.openclaw/openclaw.json openclaw agent --agent ${fullAgentName} --message "${escapedContent}"`
     ]);
     
     let stdout = '';

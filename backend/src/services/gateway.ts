@@ -81,6 +81,11 @@ class GatewayService {
   }
 
   private handleMessage(message: GatewayMessage): void {
+    // Log all events for debugging
+    if (message.type === 'event' && message.event) {
+      logger.info(`Gateway event received: ${message.event}`, message.payload);
+    }
+    
     // Handle connect challenge
     if (message.type === 'event' && message.event === 'connect.challenge') {
       const payload = message.payload as ConnectChallengePayload;
@@ -142,8 +147,8 @@ class GatewayService {
       return;
     }
     
-    if (!this.gatewayPassword) {
-      logger.error('Cannot send connect: missing GATEWAY_PASSWORD env var');
+    if (!this.gatewayToken && !this.gatewayPassword) {
+      logger.error('Cannot send connect: missing GATEWAY_TOKEN or GATEWAY_PASSWORD env var');
       return;
     }
 
@@ -163,7 +168,6 @@ class GatewayService {
           mode: 'backend'
         },
         role: 'operator',
-        scopes: ['operator.read', 'operator.write', 'operator.admin'],
         caps: [],
         commands: [],
         permissions: {},

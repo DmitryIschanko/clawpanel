@@ -48,6 +48,11 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
         client.terminal.kill();
       }
       
+      // Unsubscribe from Gateway events
+      if ((client as any).unsubscribeGateway) {
+        (client as any).unsubscribeGateway();
+      }
+      
       clients.delete(ws);
     });
     
@@ -90,14 +95,31 @@ function handleChatConnection(client: Client, url: URL): void {
   }
   
   // Subscribe to Gateway events for this agent
-  gatewayService.on('session:message', (payload: any) => {
-    if (payload.agentId === agentId) {
+  let fullResponse = '';
+  const unsubscribe = gatewayService.on('agent', (payload: any) => {
+    const expectedSessionKey = `agent:clawpanel-${agentId}:main`;
+    
+    // Accumulate text chunks
+    if (payload.sessionKey === expectedSessionKey && payload.stream === 'assistant' && payload.data?.text) {
+      fullResponse = payload.data.text;
+    }
+    
+    // Send final message when stream ends
+    if (payload.sessionKey === expectedSessionKey && payload.stream === 'lifecycle' && payload.data?.phase === 'end' && fullResponse) {
+      logger.info(`Sending final assistant message to client for agent ${agentId}: ${fullResponse.substring(0,50)}`);
       client.ws.send(JSON.stringify({
         type: 'message',
-        payload,
+        payload: {
+          role: 'assistant',
+          content: fullResponse,
+        },
       }));
+      fullResponse = '';
     }
   });
+  
+  // Store unsubscribe function for cleanup
+  (client as any).unsubscribeGateway = unsubscribe;
   
   client.ws.send(JSON.stringify({
     type: 'connected',
@@ -152,8 +174,21 @@ function handleMessage(client: Client, message: string): void {
       const agentId = data.agentId;
       const content = data.content;
       
+      logger.info(`Received chat message for agent ${agentId}: ${content.substring(0, 50)}...`);
+      
       if (agentId && content) {
-        gatewayService.sendMessage(agentId, content);
+        // Use CLI instead of Gateway WebSocket (no write permissions with token auth)
+        sendMessageToAgent(agentId, content).then(() => {
+          logger.info(`Message sent to agent ${agentId} successfully`);
+        }).catch((error) => {
+          logger.error('Failed to send message via CLI:', error);
+          client.ws.send(JSON.stringify({
+            type: 'error',
+            payload: { message: 'Failed to send message: ' + error.message }
+          }));
+        });
+      } else {
+        logger.warn('Missing agentId or content in chat message');
       }
       return;
     }

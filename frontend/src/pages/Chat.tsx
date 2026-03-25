@@ -32,6 +32,15 @@ export function ChatPage() {
     const agent = agents?.find((a) => a.id === selectedAgent)
     if (!agent) return
 
+    // Close existing connection first
+    if (wsRef.current) {
+      wsRef.current.close()
+      wsRef.current = null
+    }
+
+    // Clear messages when switching agents
+    setMessages([])
+
     // Connect WebSocket
     const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/chat?agent=${agent.id}&token=${accessToken}`
     const ws = new WebSocket(wsUrl)
@@ -63,6 +72,7 @@ export function ChatPage() {
 
     return () => {
       ws.close()
+      wsRef.current = null
     }
   }, [selectedAgent, accessToken, agents])
 
