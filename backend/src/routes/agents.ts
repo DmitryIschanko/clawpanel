@@ -8,6 +8,7 @@ import { logger } from '../utils/logger';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import os from 'os';
 
 const router = Router();
 
@@ -491,5 +492,132 @@ router.put('/:id/soul-md', authenticateToken, requireAdmin, auditLog('update', '
     throw new Error('Failed to update SOUL.md');
   }
 }));
+
+// Get agent skills + available skills
+router.get('/:id/skills', authenticateToken, asyncHandler(async (req, res) => {
+  const db = getDatabase();
+  
+  // Get agent
+  const agent = db.prepare('SELECT id, name, skills FROM agents WHERE id = ?').get(req.params.id);
+  if (!agent) {
+    throw new NotFoundError('Agent not found');
+  }
+  
+  // Get all available skills
+  const allSkills = db.prepare('SELECT id, name, description, source, enabled FROM skills ORDER BY name').all();
+  
+  // Get agent's assigned skills
+  const assignedSkillIds: number[] = agent.skills ? JSON.parse(agent.skills) : [];
+  
+  res.json({
+    success: true,
+    data: {
+      agentId: agent.id,
+      agentName: agent.name,
+      assignedSkillIds,
+      availableSkills: allSkills.map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        source: s.source,
+        enabled: s.enabled === 1,
+        assigned: assignedSkillIds.includes(s.id),
+      })),
+    },
+  });
+}));
+
+// Update agent skills
+router.put('/:id/skills', authenticateToken, requireAdmin, auditLog('update', 'agent-skills'), asyncHandler(async (req, res) => {
+  const db = getDatabase();
+  const agent = db.prepare('SELECT id, name, skills FROM agents WHERE id = ?').get(req.params.id);
+  
+  if (!agent) {
+    throw new NotFoundError('Agent not found');
+  }
+  
+  const { skillIds } = req.body;
+  if (!Array.isArray(skillIds)) {
+    throw new ValidationError('skillIds must be an array');
+  }
+  
+  // Update database
+  db.prepare('UPDATE agents SET skills = ?, updated_at = unixepoch() WHERE id = ?')
+    .run(JSON.stringify(skillIds), req.params.id);
+  
+  // Sync skills to agent's filesystem
+  const agentsDir = getAgentsDir();
+  const agentDir = path.join(agentsDir, `clawpanel-${req.params.id}`);
+  const agentSkillsDir = path.join(agentDir, 'skills');
+  
+  // Ensure skills directory exists
+  if (!fs.existsSync(agentSkillsDir)) {
+    fs.mkdirSync(agentSkillsDir, { recursive: true });
+  }
+  
+  // Get skill names
+  const skillNames: string[] = [];
+  for (const skillId of skillIds) {
+    const skill = db.prepare('SELECT name FROM skills WHERE id = ?').get(skillId);
+    if (skill) {
+      skillNames.push(skill.name);
+    }
+  }
+  
+  // Create skills index file
+  const skillsIndexPath = path.join(agentSkillsDir, 'index.json');
+  fs.writeFileSync(skillsIndexPath, JSON.stringify({
+    agentId: req.params.id,
+    skills: skillNames,
+    updatedAt: new Date().toISOString(),
+  }, null, 2));
+  
+  // Copy SKILL.md files to agent's directory
+  const skillsDir = getOpenClawSkillsDir();
+  if (skillsDir) {
+    for (const skillName of skillNames) {
+      const sourcePath = path.join(skillsDir, skillName, 'SKILL.md');
+      const targetPath = path.join(agentSkillsDir, `${skillName}.md`);
+      
+      if (fs.existsSync(sourcePath)) {
+        fs.copyFileSync(sourcePath, targetPath);
+        logger.info(`Copied skill ${skillName} to agent ${req.params.id}`);
+      }
+    }
+    
+    // Remove skills that are no longer assigned
+    const existingFiles = fs.readdirSync(agentSkillsDir);
+    for (const file of existingFiles) {
+      if (file.endsWith('.md') && file !== 'index.json') {
+        const skillName = file.replace('.md', '');
+        if (!skillNames.includes(skillName)) {
+          fs.unlinkSync(path.join(agentSkillsDir, file));
+          logger.info(`Removed skill ${skillName} from agent ${req.params.id}`);
+        }
+      }
+    }
+  }
+  
+  res.json({
+    success: true,
+    data: { assignedSkillIds: skillIds, skillNames },
+    message: 'Agent skills updated successfully',
+  });
+}));
+
+// Helper function to get OpenClaw skills directory
+function getOpenClawSkillsDir(): string | null {
+  const candidates = [
+    path.join(os.homedir(), '.openclaw', 'skills'),
+    '/root/.openclaw/skills',
+  ];
+  
+  for (const dir of candidates) {
+    if (fs.existsSync(dir)) {
+      return dir;
+    }
+  }
+  return null;
+}
 
 export default router;

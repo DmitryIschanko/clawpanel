@@ -94,6 +94,8 @@ export const agentsApi = {
   getSoulMd: (id: number) => api.get(`/agents/${id}/soul-md`),
   updateSoulMd: (id: number, content: string) =>
     api.put(`/agents/${id}/soul-md`, { content }),
+  getSkills: (id: number) => api.get(`/agents/${id}/skills`),
+  updateSkills: (id: number, skillIds: number[]) => api.put(`/agents/${id}/skills`, { skillIds }),
 }
 
 // LLM API

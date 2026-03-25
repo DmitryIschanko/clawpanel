@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from 'react-query'
 import { Bot, Save, Loader2, CheckCircle2 } from 'lucide-react'
 import Editor from '@monaco-editor/react'
 import { agentsApi } from '../services/api'
+import { AgentSkills } from '../components/AgentSkills'
 import type { Agent } from '../types'
 
 export function AgentDetailPage() {
@@ -11,7 +12,7 @@ export function AgentDetailPage() {
   const isNew = id === 'new'
   const queryClient = useQueryClient()
   
-  const [activeTab, setActiveTab] = useState<'general' | 'prompt' | 'soul'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'prompt' | 'soul' | 'skills'>('general')
   const [agentsMd, setAgentsMd] = useState('')
   const [soulMd, setSoulMd] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -156,7 +157,7 @@ export function AgentDetailPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
-        {(['general', 'prompt', 'soul'] as const).map((tab) => (
+        {(['general', 'prompt', 'soul', 'skills'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -280,6 +281,10 @@ export function AgentDetailPage() {
               }}
             />
           </div>
+        )}
+
+        {activeTab === 'skills' && !isNew && (
+          <AgentSkills agentId={Number(id)} />
         )}
       </div>
     </div>
