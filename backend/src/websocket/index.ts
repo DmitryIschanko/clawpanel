@@ -60,6 +60,23 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
     ws.on('error', (error) => {
       logger.error('WebSocket error:', error);
     });
+    
+    // Setup ping/pong to keep connection alive
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      } else {
+        clearInterval(pingInterval);
+      }
+    }, 30000); // Ping every 30 seconds
+    
+    ws.on('pong', () => {
+      // Client is alive
+    });
+    
+    ws.on('close', () => {
+      clearInterval(pingInterval);
+    });
   });
   
   // Forward Gateway events to event subscribers
