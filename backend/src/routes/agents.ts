@@ -5,9 +5,9 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { auditLog } from '../middleware/audit';
 import { logger } from '../utils/logger';
+import { execOnHost } from '../services/hostExecutor';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import os from 'os';
 
 const router = Router();
@@ -300,7 +300,29 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'agent'), a
   );
   
   // Create agent memory structure
-  const memoryResult = createAgentMemory(result.lastInsertRowid.toString(), name);
+  const agentId = result.lastInsertRowid.toString();
+  const memoryResult = createAgentMemory(agentId, name);
+  
+  // Register agent in OpenClaw
+  let openclawRegistered = false;
+  try {
+    const agentName = `clawpanel-${agentId}`;
+    const workspace = path.join(getAgentsDir(), agentName);
+    const modelStr = model || 'kimi/kimi-k2.5';
+    
+    const result = await execOnHost(
+      `openclaw agents add ${agentName} --model ${modelStr} --workspace ${workspace}`
+    );
+    
+    if (result.success) {
+      openclawRegistered = true;
+      logger.info(`Agent ${agentName} registered in OpenClaw`);
+    } else {
+      logger.error(`Failed to register agent in OpenClaw: ${result.stderr}`);
+    }
+  } catch (error) {
+    logger.error(`Error registering agent in OpenClaw: ${error}`);
+  }
   
   res.status(201).json({
     success: true,
@@ -308,6 +330,7 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'agent'), a
       id: result.lastInsertRowid,
       memoryCreated: memoryResult.created,
       memoryPath: memoryResult.path,
+      openclawRegistered,
     },
   });
 }));

@@ -7,8 +7,9 @@ interface AgentResponse {
   };
 }
 
-export async function sendMessageToAgent(agentName: string, content: string): Promise<string> {
-  const fullAgentName = agentName.startsWith('clawpanel-') ? agentName : `clawpanel-${agentName}`;
+export async function sendMessageToAgent(agentName: string | number, content: string): Promise<string> {
+  const agentNameStr = String(agentName);
+  const fullAgentName = agentNameStr.startsWith('clawpanel-') ? agentNameStr : `clawpanel-${agentNameStr}`;
   
   logger.info(`Sending message to ${fullAgentName}`);
   
