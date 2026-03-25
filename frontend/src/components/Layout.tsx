@@ -15,6 +15,7 @@ import {
   Menu,
   X,
   Server,
+  Wrench,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/auth'
 import { useUIStore } from '../stores/ui'
@@ -27,6 +28,7 @@ const navigation = [
   { name: 'Chat', to: '/chat', icon: MessageSquare },
   { name: 'Chains', to: '/chains', icon: Workflow },
   { name: 'Skills', to: '/skills', icon: Puzzle },
+  { name: 'Tools', to: '/tools', icon: Wrench },
   { name: 'Channels', to: '/channels', icon: Radio },
   { name: 'Files', to: '/files', icon: FolderOpen },
   { name: 'Terminal', to: '/terminal', icon: Terminal },

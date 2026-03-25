@@ -11,6 +11,7 @@ import fileRoutes from './files';
 import userRoutes from './users';
 import settingsRoutes from './settings';
 import mcpRoutes from './mcp';
+import toolRoutes from './tools';
 
 const router = Router();
 
@@ -32,5 +33,6 @@ router.use('/files', fileRoutes);
 router.use('/users', userRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/mcp', mcpRoutes);
+router.use('/tools', toolRoutes);
 
 export default router;

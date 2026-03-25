@@ -190,3 +190,14 @@ export const mcpApi = {
   delete: (id: number) => api.delete(`/mcp/${id}`),
   test: (id: number) => api.post(`/mcp/${id}/test`),
 }
+
+// Tools API
+export const toolsApi = {
+  list: () => api.get('/tools'),
+  get: (id: number) => api.get(`/tools/${id}`),
+  create: (data: { name: string; type: 'browser' | 'cron' | 'webhook'; config?: any; agentId?: number }) =>
+    api.post('/tools', data),
+  update: (id: number, data: Partial<{ name: string; config: any; enabled: boolean; agentId: number }>) =>
+    api.put(`/tools/${id}`, data),
+  delete: (id: number) => api.delete(`/tools/${id}`),
+}
