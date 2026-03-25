@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from 'react-query'
 import { Bot, Save, Loader2, CheckCircle2 } from 'lucide-react'
 import Editor from '@monaco-editor/react'
 import { agentsApi, llmApi } from '../services/api'
+import { useAuthStore } from '../stores/auth'
 import { AgentSkills } from '../components/AgentSkills'
 import type { Agent } from '../types'
 
@@ -28,11 +29,16 @@ export function AgentDetailPage() {
     max_tokens: 4096,
   })
 
+  const accessToken = useAuthStore((state) => state.accessToken)
+  
   const { data: availableModels } = useQuery(
     'available-models',
     async () => {
       const response = await llmApi.getModels()
       return response.data.data
+    },
+    {
+      enabled: !!accessToken, // Only fetch when authenticated
     }
   )
 

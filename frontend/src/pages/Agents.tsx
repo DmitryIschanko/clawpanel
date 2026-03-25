@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQuery } from 'react-query'
 import { Plus, Search, Bot, MoreVertical, Edit, Trash2, Loader2, Save, X, Brain, CheckCircle2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { agentsApi } from '../services/api'
+import { agentsApi, llmApi } from '../services/api'
+import { useAuthStore } from '../stores/auth'
 import { formatDate } from '../lib/utils'
 import type { Agent } from '../types'
 
@@ -212,6 +213,19 @@ function AgentModal({
     max_tokens: agent?.max_tokens ?? 4096,
   })
 
+  const accessToken = useAuthStore((state) => state.accessToken)
+  
+  const { data: availableModels } = useQuery(
+    'available-models-modal',
+    async () => {
+      const response = await llmApi.getModels()
+      return response.data.data
+    },
+    {
+      enabled: !!accessToken, // Only fetch when authenticated
+    }
+  )
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-card border border-border rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-auto">
@@ -278,9 +292,11 @@ function AgentModal({
                 className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
               >
                 <option value="">Default</option>
-                <option value="anthropic/claude-opus-4">Claude Opus 4</option>
-                <option value="openai/gpt-4o">GPT-4o</option>
-                <option value="google/gemini-2.0-flash">Gemini 2.0 Flash</option>
+                {availableModels?.map((model: any) => (
+                  <option key={model.id} value={`${model.provider}/${model.id}`}>
+                    {model.name}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
