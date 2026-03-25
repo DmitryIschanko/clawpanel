@@ -226,9 +226,9 @@ function handleMessage(client: Client, message: string): void {
         
         // Use CLI to send message and get response
         sendMessageToAgent(agentId, content).then((response) => {
-          logger.info(`Received response from agent ${agentId}: ${response.substring(0, 50)}...`);
+          logger.info(`Received response from agent ${agentId}: "${response.substring(0, 50)}..." (length: ${response.length})`);
           
-          if (response) {
+          if (response && response.trim()) {
             // Save assistant response to database
             try {
               if (!isNaN(numericAgentId)) {
@@ -244,15 +244,20 @@ function handleMessage(client: Client, message: string): void {
             }
             
             // Send response to client
+            logger.info(`WebSocket state for agent ${agentId}: ${client.ws.readyState} (OPEN=${WebSocket.OPEN}, CLOSED=${WebSocket.CLOSED})`);
             if (client.ws.readyState === WebSocket.OPEN) {
-              client.ws.send(JSON.stringify({
-                type: 'message',
-                payload: {
-                  role: 'assistant',
-                  content: response,
-                },
-              }));
-              logger.info(`Sent response to client for agent ${agentId}`);
+              try {
+                client.ws.send(JSON.stringify({
+                  type: 'message',
+                  payload: {
+                    role: 'assistant',
+                    content: response,
+                  },
+                }));
+                logger.info(`Sent response to client for agent ${agentId}`);
+              } catch (sendError) {
+                logger.error(`Failed to send WebSocket message: ${sendError}`);
+              }
             } else {
               logger.warn(`Cannot send response: WebSocket not open (state: ${client.ws.readyState})`);
             }

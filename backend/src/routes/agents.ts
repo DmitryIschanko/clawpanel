@@ -317,6 +317,13 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'agent'), a
     if (result.success) {
       openclawRegistered = true;
       logger.info(`Agent ${agentName} registered in OpenClaw`);
+      
+      // Restart Gateway to pick up new agent (async, don't wait)
+      execOnHost('systemctl restart openclaw-gateway').then(() => {
+        logger.info('Gateway restarted to pick up new agent');
+      }).catch((err) => {
+        logger.error('Failed to restart Gateway:', err);
+      });
     } else {
       logger.error(`Failed to register agent in OpenClaw: ${result.stderr}`);
     }
