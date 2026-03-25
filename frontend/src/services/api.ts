@@ -178,3 +178,15 @@ export const settingsApi = {
   backup: () => api.post('/settings/backup'),
   restore: () => api.post('/settings/restore'),
 }
+
+// MCP Servers API
+export const mcpApi = {
+  list: () => api.get('/mcp'),
+  get: (id: number) => api.get(`/mcp/${id}`),
+  create: (data: { name: string; url: string; authType?: string; authConfig?: any }) =>
+    api.post('/mcp', data),
+  update: (id: number, data: Partial<{ name: string; url: string; authType: string; authConfig: any; enabled: boolean }>) =>
+    api.put(`/mcp/${id}`, data),
+  delete: (id: number) => api.delete(`/mcp/${id}`),
+  test: (id: number) => api.post(`/mcp/${id}/test`),
+}

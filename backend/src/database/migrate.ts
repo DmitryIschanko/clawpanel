@@ -179,6 +179,20 @@ const migrations = [
     updated_at INTEGER DEFAULT (unixepoch())
   );
   `,
+  
+  // MCP servers table
+  `
+  CREATE TABLE IF NOT EXISTS mcp_servers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    url TEXT NOT NULL,
+    auth_type TEXT DEFAULT 'none', -- none, api_key, bearer, basic
+    auth_config TEXT, -- JSON {apiKey, username, password, token}
+    enabled INTEGER DEFAULT 1,
+    created_at INTEGER DEFAULT (unixepoch()),
+    updated_at INTEGER DEFAULT (unixepoch())
+  );
+  `,
 ];
 
 const seeds = [

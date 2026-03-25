@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   X,
+  Server,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/auth'
 import { useUIStore } from '../stores/ui'
@@ -32,6 +33,7 @@ const navigation = [
 ]
 
 const adminNavigation = [
+  { name: 'MCP Servers', to: '/mcp', icon: Server },
   { name: 'Users', to: '/users', icon: Users },
   { name: 'Settings', to: '/settings', icon: Settings },
 ]

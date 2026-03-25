@@ -16,6 +16,7 @@ import { TerminalPage } from './pages/Terminal'
 import { ChatPage } from './pages/Chat'
 import { SettingsPage } from './pages/Settings'
 import { UsersPage } from './pages/Users'
+import { McpServersPage } from './pages/McpServers'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -55,6 +56,7 @@ function App() {
             <Route path="chat" element={<ChatPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="users" element={<UsersPage />} />
+            <Route path="mcp" element={<McpServersPage />} />
           </Route>
         </Routes>
       </BrowserRouter>
