@@ -189,6 +189,17 @@ await setupTelegramChannel('bot-token', 'pairing', ['@username']);
 await execOnHost('systemctl restart openclaw-gateway');
 ```
 
+**Важно**: Когда openclaw работает в fallback режиме (Gateway не доступен), JSON ответ может быть в stderr вместо stdout. Проверяйте оба потока:
+```typescript
+const output = result.stdout?.trim() || result.stderr?.trim() || '';
+// Извлеките JSON из stderr
+const jsonMatch = output.match(/\{[\s\S]*"payloads"[\s\S]*\}/);
+if (jsonMatch) {
+  const response = JSON.parse(jsonMatch[0]);
+  return response.payloads[0]?.text;
+}
+```
+
 ### Прямой HTTP запрос
 
 ```bash
@@ -219,6 +230,8 @@ const agents = gateway.getConnectedAgents();
 const health = gateway.getLastHealth();
 ```
 
+**Примечание**: Новые агенты автоматически регистрируются в OpenClaw при создании через `agentsApi.create()`. Gateway перезапускается автоматически для подхвата новых агентов.
+
 ### События Gateway
 
 ```typescript
@@ -241,6 +254,10 @@ const ws = new WebSocket('wss://your-server/ws');
 // Аутентификация через токен (передается в query param или header)
 // Backend middleware проверяет JWT токен
 ```
+
+### Ping/Pong (Keep-alive)
+
+Сервер посылает ping каждые 30 секунд для поддержания соединения открытым во время длительных ответов LLM (5-10 секунд). Это предотвращает таймаут клиента.
 
 ### Сообщения от backend
 
