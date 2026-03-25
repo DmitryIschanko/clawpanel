@@ -192,9 +192,18 @@ export function ChannelsPage() {
           agents={agents || []}
           onClose={() => setIsCreateModalOpen(false)}
           onSave={async (data) => {
-            await channelsApi.create(data)
-            setIsCreateModalOpen(false)
-            refetch()
+            console.log('onSave called with data:', data)
+            try {
+              const response = await channelsApi.create(data)
+              console.log('Channel created successfully:', response.data)
+              const message = response.data.data?.message || 'Channel created successfully'
+              alert(message)
+              setIsCreateModalOpen(false)
+              refetch()
+            } catch (error: any) {
+              console.error('Failed to create channel:', error)
+              alert('Error: ' + (error.response?.data?.error?.message || error.message))
+            }
           }}
         />
       )}
@@ -237,6 +246,56 @@ function ChannelModal({
   })
   const [whitelistInput, setWhitelistInput] = useState('')
   const [botToken, setBotToken] = useState(channel?.config?.botToken || '')
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+
+  const validate = (): boolean => {
+    const newErrors: Record<string, string> = {}
+    
+    if (!formData.name?.trim()) {
+      newErrors.name = 'Name is required'
+    }
+    
+    if (formData.type === 'telegram' && !isEditing) {
+      if (!botToken?.trim()) {
+        newErrors.botToken = 'Bot Token is required for Telegram'
+      } else if (!/^\d+:[A-Za-z0-9_-]{35,}$/.test(botToken.trim())) {
+        newErrors.botToken = 'Invalid Bot Token format (should be like: 123456789:ABCdef...)'
+      }
+    }
+    
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
+  const handleBlur = (field: string) => {
+    setTouched({ ...touched, [field]: true })
+    validate()
+  }
+
+  const handleSave = () => {
+    console.log('handleSave called')
+    setTouched({ name: true, botToken: true })
+    
+    const isValid = validate()
+    console.log('Validation result:', isValid, 'Errors:', errors)
+    
+    if (!isValid) {
+      console.log('Validation failed, not saving')
+      return
+    }
+    
+    const data = {
+      ...formData,
+      name: formData.name?.trim(),
+      config: {
+        ...formData.config,
+        botToken: botToken?.trim() || undefined,
+      },
+    }
+    console.log('Saving data:', data)
+    onSave(data)
+  }
 
   const addToWhitelist = () => {
     if (!whitelistInput.trim()) return
@@ -254,18 +313,8 @@ function ChannelModal({
     })
   }
 
-  const handleSave = () => {
-    const data = {
-      ...formData,
-      config: {
-        ...formData.config,
-        botToken: botToken || undefined,
-      },
-    }
-    onSave(data)
-  }
-
   const selectedAgent = agents.find(a => a.id === formData.agent_id)
+  const isValid = !errors.name && (!errors.botToken || isEditing)
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -284,7 +333,10 @@ function ChannelModal({
             <label className="block text-sm font-medium mb-1">Type</label>
             <select
               value={formData.type}
-              onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+              onChange={(e) => {
+                setFormData({ ...formData, type: e.target.value })
+                setErrors({})
+              }}
               disabled={isEditing}
               className="w-full px-3 py-2 rounded-lg bg-secondary border border-border disabled:opacity-50"
             >
@@ -295,14 +347,31 @@ function ChannelModal({
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Name</label>
+            <label className="block text-sm font-medium mb-1">
+              Name
+              <span className="text-red-500 ml-1">*</span>
+            </label>
             <input
               type="text"
               value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
+              onChange={(e) => {
+                setFormData({ ...formData, name: e.target.value })
+                if (errors.name) setErrors({ ...errors, name: '' })
+              }}
+              onBlur={() => handleBlur('name')}
+              className={`w-full px-3 py-2 rounded-lg bg-secondary border ${
+                touched.name && errors.name 
+                  ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
+                  : 'border-border'
+              }`}
               placeholder="My Telegram Bot"
             />
+            {touched.name && errors.name && (
+              <p className="text-red-500 text-xs mt-1 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                {errors.name}
+              </p>
+            )}
           </div>
 
           {formData.type === 'telegram' && (
@@ -310,17 +379,35 @@ function ChannelModal({
               <label className="block text-sm font-medium mb-1">
                 Bot Token
                 <span className="text-xs text-muted-foreground ml-1">(from @BotFather)</span>
+                {!isEditing && <span className="text-red-500 ml-1">*</span>}
               </label>
               <input
                 type="password"
                 value={botToken}
-                onChange={(e) => setBotToken(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-secondary border border-border font-mono text-sm"
+                onChange={(e) => {
+                  setBotToken(e.target.value)
+                  if (errors.botToken) setErrors({ ...errors, botToken: '' })
+                }}
+                onBlur={() => handleBlur('botToken')}
+                className={`w-full px-3 py-2 rounded-lg bg-secondary border font-mono text-sm ${
+                  touched.botToken && errors.botToken 
+                    ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
+                    : 'border-border'
+                }`}
                 placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                disabled={isEditing}
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                The token will be stored in OpenClaw configuration
-              </p>
+              {touched.botToken && errors.botToken && (
+                <p className="text-red-500 text-xs mt-1 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  {errors.botToken}
+                </p>
+              )}
+              {!isEditing && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  The token will be stored in OpenClaw configuration
+                </p>
+              )}
             </div>
           )}
 
@@ -397,6 +484,21 @@ function ChannelModal({
             </div>
           </div>
 
+          {!isEditing && formData.type === 'telegram' && botToken && (
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 text-sm">
+              <p className="font-medium text-yellow-500 mb-2">⚠️ Manual Configuration Required</p>
+              <p className="text-muted-foreground mb-2">
+                After saving, run these commands in the Terminal to configure OpenClaw:
+              </p>
+              <div className="bg-black/50 rounded p-2 font-mono text-xs space-y-1">
+                <div>openclaw config set channels.telegram.enabled true</div>
+                <div>openclaw config set channels.telegram.botToken "{botToken.substring(0, 20)}..."</div>
+                <div>openclaw config set channels.telegram.dmPolicy "{formData.dm_policy}"</div>
+                <div>sudo systemctl restart openclaw-gateway</div>
+              </div>
+            </div>
+          )}
+
           <div className="bg-muted rounded-lg p-4 text-sm text-muted-foreground">
             <p className="font-medium text-foreground mb-1">How it works:</p>
             <ul className="list-disc list-inside space-y-1">
@@ -409,13 +511,13 @@ function ChannelModal({
         </div>
 
         <div className="flex justify-end gap-2 mt-6">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80">
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80">
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSave}
-            disabled={!formData.name || (formData.type === 'telegram' && !botToken && !isEditing)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
           >
             <Save className="w-4 h-4" />
             {isEditing ? 'Save Changes' : 'Create Channel'}

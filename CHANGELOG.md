@@ -1,46 +1,75 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+Все значимые изменения в этом проекте будут задокументированы в этом файле.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Формат основан на [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+и этот проект придерживается [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
-- Skill Manager with ClawHub integration - search and install skills from clawhub.ai
-- ZIP extraction for skill archives with automatic SKILL.md loading
-- Monaco Editor for SKILL.md editing in browser
-- SSH Terminal with xterm.js integration
-- Gateway WebSocket client with challenge-response authentication
-- Token-based authentication for OpenClaw Gateway
+## [1.1.0] - 2026-03-25
 
-### Fixed
-- Chat WebSocket now properly closes old connections before opening new ones
-- Fixed duplicate message issue by properly unsubscribing from Gateway events on disconnect
-- Fixed agent ID type mismatch (number vs string) in agentRunner.ts
-- Fixed "missing scope: operator.write" error by switching Gateway to token auth mode
-- Fixed message accumulation to send only final response from Gateway
-- VPS CPU optimization by disabling ripgrep (rg) binary
+### Added
+- **Host Executor** — новый HTTP API сервис для выполнения `openclaw` команд на хосте из Docker контейнера
+  - Порт `3002` с token-аутентификацией
+  - Whitelist команд: только `openclaw *`
+  - Systemd сервис `clawpanel-host-executor.service` с автозапуском
+  - iptables правила для доступа из Docker сетей
+  - Эндпоинты: `GET /health`, `POST /exec`
+  
+- **Новые переменные окружения:**
+  - `HOST_EXECUTOR_URL` — URL для подключения к Host Executor
+  - `HOST_EXECUTOR_TOKEN` — токен аутентификации
+
+- **Новый сервис в backend:**
+  - `services/hostExecutor.ts` — HTTP клиент для Host Executor
 
 ### Changed
-- Gateway authentication changed from password to token mode
-- Agent registration now uses "clawpanel-{id}" naming convention
-- Backend uses SSH/CLI fallback when Gateway WebSocket lacks write permissions
+- **Channel Manager** теперь использует Host Executor вместо SSH для настройки Telegram
+  - Удалена зависимость от SSH для конфигурации каналов
+  - Прямой вызов `openclaw config set` через HTTP API
+  
+- **Обновлена архитектура** в документации:
+  - Добавлен Host Executor в схему системы
+  - Обновлены инструкции по установке
 
-## [0.1.0] - 2026-03-24
+- **Обновлены зависимости:**
+  - Добавлен `axios` в `backend/package.json`
+
+### Removed
+- **SSH для выполнения команд** — заменен на Host Executor HTTP API
+  - SSH теперь используется только для Web Terminal
+
+### Fixed
+- Проблема с Docker networking при попытках SSH из контейнера на хост
+- Fail2ban блокировка при неправильных SSH попытках
+
+### Security
+- Host Executor проверяет whitelist команд (только `openclaw *`)
+- Токен-аутентификация для всех запросов к Host Executor
+- Доступ только из Docker сетей через iptables
+
+## [1.0.0] - 2026-03-20
 
 ### Added
-- Initial release of ClawPanel
-- Dashboard with live event feed and agent/channel status
-- Agent Manager - create, edit, delete agents
-- LLM Manager - manage providers (Anthropic, OpenAI, Google, Kimi, etc.)
-- Chain Builder - create agent workflows
-- Channel Manager - Telegram, Discord, WhatsApp, Slack integration
-- File Manager with Monaco Editor
-- Settings with openclaw.json editor
-- JWT authentication with refresh tokens
-- TOTP 2FA for admin
-- Rate limiting protection
-- SQLite database for persistence
-- Docker Compose deployment
+- **Dashboard** — live-лента событий, статус агентов и каналов, расход токенов
+- **Agent Manager** — создание, редактирование и удаление агентов
+- **LLM Manager** — управление провайдерами (Anthropic, OpenAI, Google, Kimi, и др.)
+- **WebChat** — чат с агентами в реальном времени через WebSocket
+- **Chain Builder** — создание цепочек агентов
+- **Skill Manager** — установка скилов из ClawHub
+- **Channel Manager** — подключение Telegram, Discord, WhatsApp, Slack
+- **File Manager** — просмотр и редактирование файлов
+- **Web Terminal** — SSH терминал к серверу с OpenClaw CLI
+- **Monitoring** — графики использования, логи
+- **Settings** — редактор openclaw.json с валидацией
+
+### Technical
+- React 18 + TypeScript frontend
+- Node.js 24 + Express backend
+- SQLite база данных
+- Docker Compose развертывание
+- Gateway WebSocket protocol интеграция
+- JWT аутентификация с refresh токенами
+- TOTP 2FA для администраторов
+- Rate limiting

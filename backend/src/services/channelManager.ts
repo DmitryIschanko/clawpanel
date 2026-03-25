@@ -12,7 +12,7 @@ interface ChannelConfig {
   telegram?: TelegramConfig;
 }
 
-const SSH_HOST = process.env.SSH_HOST || 'host.docker.internal';
+const SSH_HOST = process.env.SSH_HOST || '173.212.243.229';
 const SSH_USER = process.env.SSH_USER || 'root';
 const SSH_PORT = process.env.SSH_PORT || '22';
 const SSH_KEY_PATH = process.env.SSH_KEY_PATH || '/root/.ssh/id_ed25519';

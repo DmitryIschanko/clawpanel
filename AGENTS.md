@@ -1,401 +1,552 @@
-# ClawPanel — AI Agent Guide
+# ClawPanel — Документация для AI Агентов
 
-> This file contains essential information for AI agents working on the ClawPanel project.
-> Always read this file before making significant changes.
+## Краткий обзор
 
-## Project Overview
+ClawPanel — веб-панель управления для OpenClaw (многоагентная LLM-система). Стек: React 18 + TypeScript, Node.js 24 + Express, SQLite, Docker Compose.
 
-**ClawPanel** is a web control panel for OpenClaw — a multi-agent LLM system. It provides a modern React frontend and Node.js backend for managing agents, LLM providers, channels (Telegram, Discord, WhatsApp, Slack), skills, and monitoring.
+**Ключевые архитектурные особенности:**
+- Backend в Docker контейнере, OpenClaw Gateway на хосте (systemd)
+- Host Executor HTTP API для выполнения `openclaw` команд с хоста
+- Gateway WebSocket protocol с challenge-response аутентификацией
+- WebSocket сервер для real-time коммуникации с frontend
 
-**Key Architecture:**
-- Frontend: React 18 + TypeScript + Tailwind CSS
-- Backend: Node.js 24 + Express + SQLite
-- Gateway Integration: WebSocket connection to OpenClaw Gateway
-- Terminal: SSH-based terminal via xterm.js
+## Архитектура системы
 
-## Quick Links
-
-- Repository: `https://github.com/DmitryIschanko/clawpanel.git`
-- Main branch: `main`
-- Node.js version: 24 LTS
-- Default admin: `admin/admin` (change after first login!)
-
-## Environment Setup
-
-### Local Development (without Docker)
-
-```bash
-# 1. Clone and setup
-git clone https://github.com/DmitryIschanko/clawpanel.git
-cd clawpanel
-
-# 2. Backend
-npm install -g pnpm
-cd backend && pnpm install
-
-# Create .env
-PORT=3000
-NODE_ENV=development
-JWT_SECRET=dev-secret-change-in-production
-SQLITE_PATH=./clawpanel.db
-GATEWAY_URL=ws://localhost:18789
-GATEWAY_TOKEN=your-gateway-token
-
-# Run migrations
-npx tsx src/database/migrate.ts
-
-# Start backend
-pnpm run dev
-
-# 3. Frontend
-cd ../frontend && pnpm install
-cp .env.example .env  # VITE_API_URL=http://localhost:3000
-
-# Start frontend
-pnpm run dev
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Nginx (80/443)                                     │
+│                        Reverse Proxy + SSL                                   │
+└─────────────────────────┬───────────────────────────────────────────────────┘
+                          │
+             ┌────────────┼────────────┐
+             │            │            │
+             ▼            ▼            │
+        ┌─────────┐  ┌─────────┐       │
+        │ Frontend│  │ Backend │       │
+        │  React  │  │ Node.js │◄──────┼── HTTP API
+        │  :80    │  │  :3000  │       │   (Host Executor)
+        └─────────┘  └────┬────┘       │
+                          │            │
+                          │ ws://host.docker.internal:18789
+                          │ (WebSocket + token auth)
+                          │            │
+                          ▼            ▼
+                 ┌─────────────────────────┐
+                 │   OpenClaw Gateway      │
+                 │   (systemd, host)       │
+                 │   ws://0.0.0.0:18789    │
+                 └─────────────────────────┘
+                          │
+                          │ http://172.17.0.1:3002
+                          ▼
+                 ┌─────────────────────────┐
+                 │   Host Executor         │
+                 │   (systemd, host)       │
+                 │   HTTP API :3002        │
+                 └─────────────────────────┘
 ```
 
-### Docker Development
+## Компоненты
+
+### 1. OpenClaw Gateway (Host)
+
+**Запуск:** systemd сервис `openclaw-gateway`
+
+**Конфигурация:** `~/.openclaw/openclaw.json`
+
+**Порт:** `18789` (WebSocket)
+
+**Аутентификация:** Token-based с challenge-response
+
+```javascript
+// Gateway handshake flow
+1. Connect to ws://host:18789
+2. Receive: { event: 'connect.challenge', nonce: '...' }
+3. Send: { method: 'connect', params: { auth: { token: '...' } } }
+4. Receive: { type: 'hello-ok' } or connection closed
+```
+
+**Важные требования к client.id/mode:**
+```javascript
+const VALID_CLIENT_IDS = [
+  'cli', 'gateway-client', 'openclaw-macos', 
+  'openclaw-ios', 'openclaw-android', 'node-host', 'test'
+];
+
+const VALID_CLIENT_MODES = [
+  'cli', 'ui', 'backend', 'node', 'webchat', 'probe', 'test'
+];
+
+// ClawPanel использует:
+client.id: 'gateway-client'
+client.mode: 'backend'
+```
+
+### 2. Host Executor (Host)
+
+**Назначение:** Позволяет Docker контейнеру выполнять `openclaw` команды на хосте
+
+**Запуск:** systemd сервис `clawpanel-host-executor`
+
+**Порт:** `3002` (HTTP)
+
+**Локация:** `/usr/local/bin/host-executor.js` или `/root/clawpanel/host-executor.js`
+
+**API Endpoints:**
+
+```http
+GET /health          # Health check
+POST /exec           # Execute openclaw command
+```
+
+**Request format:**
+```json
+{
+  "command": "openclaw agents list",
+  "token": "host-executor-token-from-env"
+}
+```
+
+**Response format:**
+```json
+{
+  "success": true,
+  "stdout": "...",
+  "stderr": "..."
+}
+```
+
+**Безопасность:**
+- Только `openclaw *` команды разрешены (whitelist проверка)
+- Токен-аутентификация
+- Доступ только из Docker сетей (iptables)
+
+### 3. Backend (Docker)
+
+**Базовый образ:** `node:20-alpine`
+
+**Порт:** `3000`
+
+**Сети:**
+- `clawpanel-network` — внутренняя сеть
+- `gateway-network` — для подключения к Gateway
+
+**Ключевые сервисы:**
+
+| Файл | Назначение |
+|------|------------|
+| `services/gateway.ts` | WebSocket клиент для Gateway |
+| `services/hostExecutor.ts` | HTTP клиент для Host Executor |
+| `services/agentRunner.ts` | Отправка сообщений агентам |
+| `websocket/index.ts` | WebSocket сервер для frontend |
+
+**Переменные окружения:**
+```env
+# Gateway WebSocket
+GATEWAY_URL=ws://host.docker.internal:18789
+GATEWAY_TOKEN=...
+
+# Host Executor HTTP
+HOST_EXECUTOR_URL=http://172.17.0.1:3002
+HOST_EXECUTOR_TOKEN=...
+
+# JWT
+JWT_SECRET=...
+JWT_ACCESS_TTL=15m
+JWT_REFRESH_TTL=7d
+
+# Database
+SQLITE_PATH=/data/clawpanel.db
+```
+
+### 4. Frontend (Docker)
+
+**Базовый образ:** `node:20-alpine` (build) + `nginx:alpine` (serve)
+
+**Фреймворк:** React 18 + TypeScript + Vite + Tailwind CSS
+
+**State management:** Zustand
+
+**HTTP client:** Axios
+
+**WebSocket:** Native WebSocket API
+
+## Работа с Host Executor
+
+### От backend (TypeScript)
+
+```typescript
+import { execOnHost, setupTelegramChannel } from './services/hostExecutor';
+
+// Выполнить произвольную команду
+const result = await execOnHost('openclaw agents list');
+console.log(result.stdout);
+
+// Настроить Telegram канал
+await setupTelegramChannel('bot-token', 'pairing', ['@username']);
+
+// Перезапустить Gateway
+await execOnHost('systemctl restart openclaw-gateway');
+```
+
+### Прямой HTTP запрос
 
 ```bash
-# Full stack with Docker Compose
-docker compose up -d
+curl -X POST http://172.17.0.1:3002/exec \
+  -H "Content-Type: application/json" \
+  -d '{
+    "command": "openclaw config set channels.telegram.enabled true",
+    "token": "your-host-executor-token"
+  }'
+```
 
-# View logs
+## Работа с Gateway
+
+### От backend (WebSocket)
+
+```typescript
+import { getGatewayClient } from './services/gateway';
+
+const gateway = getGatewayClient();
+
+// Отправить сообщение агенту
+await gateway.sendAgentMessage(agentId, message, sessionKey);
+
+// Получить список агентов
+const agents = gateway.getConnectedAgents();
+
+// Получить health status
+const health = gateway.getLastHealth();
+```
+
+### События Gateway
+
+```typescript
+// Gateway events forwarded to frontend via WebSocket:
+- 'health'          // Periodic health update
+- 'agent'           // Agent message/response
+- 'heartbeat'       // Heartbeat status
+- 'tick'            // Time tick
+- 'connect.challenge'  // Auth challenge
+- 'hello-ok'        // Auth success
+```
+
+## WebSocket протокол (Frontend ↔ Backend)
+
+### Подключение
+
+```javascript
+const ws = new WebSocket('wss://your-server/ws');
+
+// Аутентификация через токен (передается в query param или header)
+// Backend middleware проверяет JWT токен
+```
+
+### Сообщения от backend
+
+```typescript
+// Gateway events
+{
+  type: 'gateway',
+  event: 'health' | 'agent' | 'heartbeat' | 'tick',
+  payload: { ... }
+}
+
+// Agent responses
+{
+  type: 'agent',
+  agentId: 'clawpanel-1',
+  message: { ... }
+}
+
+// Terminal output
+{
+  type: 'terminal',
+  data: 'output from SSH'
+}
+```
+
+### Сообщения в backend
+
+```typescript
+// Send message to agent
+{
+  type: 'chat',
+  agentId: 'clawpanel-1',
+  content: 'Hello!'
+}
+
+// Terminal input
+{
+  type: 'terminal',
+  data: 'command to execute'
+}
+```
+
+## Структура базы данных (SQLite)
+
+### Таблицы
+
+```sql
+-- Users
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY,
+  username TEXT UNIQUE,
+  password_hash TEXT,
+  role TEXT DEFAULT 'operator',
+  totp_secret TEXT,
+  totp_enabled INTEGER DEFAULT 0,
+  created_at INTEGER,
+  updated_at INTEGER
+);
+
+-- Agents
+CREATE TABLE agents (
+  id INTEGER PRIMARY KEY,
+  name TEXT,
+  model TEXT,
+  system_prompt TEXT,
+  temperature REAL DEFAULT 0.7,
+  max_tokens INTEGER DEFAULT 4096,
+  workspace TEXT,
+  status TEXT DEFAULT 'offline',
+  created_at INTEGER,
+  updated_at INTEGER
+);
+
+-- Channels
+CREATE TABLE channels (
+  id INTEGER PRIMARY KEY,
+  type TEXT,  -- 'telegram', 'discord', etc.
+  name TEXT,
+  config TEXT,  -- JSON
+  status TEXT DEFAULT 'offline',
+  agent_id INTEGER,
+  allow_from TEXT,  -- JSON array
+  dm_policy TEXT DEFAULT 'pairing',
+  created_at INTEGER,
+  updated_at INTEGER
+);
+
+-- API Keys
+CREATE TABLE api_keys (
+  id INTEGER PRIMARY KEY,
+  provider TEXT,
+  key_name TEXT,
+  key_value TEXT,  -- encrypted
+  is_active INTEGER DEFAULT 1,
+  created_at INTEGER
+);
+
+-- Skills
+CREATE TABLE skills (
+  id INTEGER PRIMARY KEY,
+  name TEXT,
+  description TEXT,
+  content TEXT,  -- SKILL.md content
+  installed_at INTEGER
+);
+```
+
+## Типичные задачи
+
+### Добавить новый endpoint
+
+```typescript
+// backend/src/routes/myFeature.ts
+import { Router } from 'express';
+import { authenticateToken } from '../middleware/auth';
+
+const router = Router();
+
+router.get('/', authenticateToken, async (req, res) => {
+  // Your code here
+  res.json({ success: true, data: [...] });
+});
+
+export default router;
+```
+
+```typescript
+// backend/src/routes/index.ts
+import myFeatureRoutes from './myFeature';
+
+router.use('/api/my-feature', myFeatureRoutes);
+```
+
+### Добавить новую страницу
+
+```typescript
+// frontend/src/pages/MyPage.tsx
+import { useState } from 'react';
+
+export function MyPage() {
+  // Your component code
+  return <div>...</div>;
+}
+```
+
+```typescript
+// frontend/src/App.tsx
+import { MyPage } from './pages/MyPage';
+
+// Add route
+<Route path="/my-page" element={<MyPage />} />
+
+// Add to navigation
+{ icon: IconName, label: 'My Page', path: '/my-page' }
+```
+
+### Выполнить openclaw команду из фичи
+
+```typescript
+import { execOnHost } from '../services/hostExecutor';
+
+async function myFeature() {
+  try {
+    const result = await execOnHost('openclaw mycommand');
+    
+    if (result.success) {
+      console.log('Output:', result.stdout);
+    } else {
+      console.error('Error:', result.stderr);
+    }
+  } catch (error) {
+    console.error('Failed to execute:', error);
+  }
+}
+```
+
+## Отладка
+
+### Логи компонентов
+
+```bash
+# Gateway (host)
+sudo journalctl -u openclaw-gateway -f
+
+# Host Executor (host)
+sudo journalctl -u clawpanel-host-executor -f
+
+# Backend (docker)
 docker compose logs -f backend
+
+# Frontend (docker)
 docker compose logs -f frontend
 
-# Rebuild after changes
-docker compose down && docker compose up -d --build
+# Nginx (docker)
+docker compose logs -f nginx
 ```
 
-## Critical Implementation Details
-
-### Gateway WebSocket Protocol
-
-The Gateway uses a **challenge-response handshake** for authentication:
-
-```typescript
-// 1. Connection established
-ws.connect('ws://host.docker.internal:18789')
-
-// 2. Gateway sends challenge
-// { type: 'event', event: 'connect.challenge', payload: { nonce: '...' } }
-
-// 3. Client responds with connect request
-// { type: 'req', method: 'connect', params: { auth: { token: '...' }, ... } }
-
-// 4. Gateway responds
-// { type: 'res', ok: true, payload: { type: 'hello-ok' } }
-```
-
-**Important:** 
-- Use `client.id: 'gateway-client'` and `client.mode: 'backend'` (validated by Gateway)
-- Subscribe to events with `subscribe` request
-- Token auth mode requires `gateway.auth.token` in `~/.openclaw/openclaw.json`
-
-### Gateway Event Handling (CRITICAL)
-
-**Always clean up event subscriptions when WebSocket closes:**
-
-```typescript
-// GOOD - Proper cleanup
-const unsubscribe = gatewayService.on('agent', (payload) => {
-  // Handle event
-});
-
-ws.on('close', () => {
-  unsubscribe(); // Critical! Prevents duplicate messages
-  clients.delete(ws);
-});
-
-// BAD - Memory leak and duplicate messages
-ws.on('close', () => {
-  clients.delete(ws);
-  // Missing unsubscribe!
-});
-```
-
-### Agent Chat Flow
-
-1. **Frontend** opens WebSocket to `/ws/chat?agent={id}`
-2. **Backend** subscribes to Gateway `agent` events for the specific agent
-3. **User sends message** → Backend routes via CLI or Gateway
-4. **Gateway responds** with streaming `agent` events
-5. **Backend accumulates** text and sends final message on `lifecycle:end`
-6. **Frontend** displays accumulated message
-
-### Agent ID Mapping
-
-OpenClaw Gateway uses agent names like `clawpanel-1`, `clawpanel-8`. The backend maps numeric IDs from database to full names:
-
-```typescript
-const fullAgentName = `clawpanel-${agentId}`;
-
-// When sending via CLI
-openclaw agent --agent clawpanel-1 --prompt "Hello"
-```
-
-### SSH Terminal Implementation
-
-Terminal uses SSH with key-based auth to host machine:
-
-```typescript
-// Environment variables (from .env)
-SSH_HOST=host.docker.internal
-SSH_USER=root
-SSH_PORT=22
-SSH_KEY_PATH=/root/.ssh/id_ed25519
-
-// Connection
-ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no \
-  -p ${SSH_PORT} ${SSH_USER}@${SSH_HOST}
-```
-
-SSH keys are generated during installation and mounted from `ssh-keys/` directory.
-
-## Database Schema
-
-**Core tables:**
-- users (id, username, password_hash, role, totp_secret, created_at, updated_at)
-- llm_providers (id, name, api_key, enabled, created_at)
-- agents (id, name, description, system_prompt, enabled, created_at, updated_at)
-- channels (id, name, type, config, enabled, created_at, updated_at)
-- chains (id, name, description, config, enabled, created_at, updated_at)
-- skills (id, name, description, content, source, version, created_at, updated_at)
-- files (id, path, content, created_at, updated_at)
-- stats (id, date, tokens, requests, errors, created_at)
-
-## Testing Checklist
-
-Before committing, verify:
-
-- [ ] Backend compiles: `cd backend && pnpm run build`
-- [ ] Frontend builds: `cd frontend && pnpm run build`
-- [ ] TypeScript has no errors
-- [ ] API endpoints work (use curl or Postman)
-- [ ] WebSocket chat works with multiple agents
-- [ ] Terminal connects via SSH
-- [ ] Dashboard shows Gateway as connected
-- [ ] No duplicate messages in chat
-- [ ] Proper cleanup on disconnect
-
-## Common Issues & Solutions
-
-### "Invalid connect params" Gateway error
-
-**Cause:** Incorrect `client.id` or `client.mode`
-**Fix:** Use valid values:
-```typescript
-{
-  id: 'gateway-client',
-  mode: 'backend'
-}
-```
-
-### "missing scope: operator.write"
-
-**Cause:** Gateway in `password` auth mode
-**Fix:** Switch to `token` auth:
-```bash
-openclaw config set gateway.auth.mode token
-openclaw config set gateway.auth.token "$(openssl rand -hex 32)"
-sudo systemctl restart openclaw-gateway
-```
-
-### Duplicate chat messages
-
-**Cause:** Not unsubscribing from Gateway events
-**Fix:** Always call `unsubscribe()` in WebSocket close handler
-
-### Agent not responding to chat
-
-**Cause:** Agent not registered in OpenClaw
-**Fix:** Register agents:
-```bash
-openclaw agents add clawpanel-1 --model kimi/kimi-k2.5
-openclaw agents add clawpanel-8 --model kimi/kimi-k2
-```
-
-### Terminal connection refused
-
-**Cause:** SSH keys not set up
-**Fix:** Regenerate keys and restart:
-```bash
-./fix-ssh-keys.sh
-docker compose restart
-```
-
-## Coding Standards
-
-### TypeScript
-- Use strict mode: `"strict": true` in tsconfig.json
-- Explicit return types for public functions
-- No `any` types (use `unknown` with type guards)
-- Prefer `interface` over `type` for objects
-
-### React
-- Functional components with hooks
-- `useEffect` cleanup functions required
-- Memoization with `useMemo`/`useCallback` for expensive operations
-- Zustand for state management (avoid Context for global state)
-
-### Error Handling
-```typescript
-// Good - structured error
-try {
-  const result = await someOperation();
-  return { ok: true, data: result };
-} catch (error) {
-  const message = error instanceof Error ? error.message : 'Unknown error';
-  logger.error('Operation failed', { error: message });
-  return { ok: false, error: message };
-}
-```
-
-### Logging
-```typescript
-// Use the logger utility
-import logger from '../utils/logger';
-
-logger.info('Connected to Gateway', { url: gatewayUrl });
-logger.error('WebSocket error', { error: error.message });
-logger.debug('Received event', { type: message.type });
-```
-
-## Deployment Commands
+### Тестирование компонентов
 
 ```bash
-# Quick deploy to server
-ssh root@your-server << 'EOF'
-  cd /opt/clawpanel
-  git pull origin main
-  docker compose down
-  docker compose build --no-cache
-  docker compose up -d
-  docker compose exec backend npx tsx src/database/migrate.ts
-  docker compose logs -f backend
-EOF
+# Test Gateway from host
+curl http://localhost:18789
+
+# Test Host Executor from host
+curl -X POST http://localhost:3002/exec \
+  -H "Content-Type: application/json" \
+  -d '{"command":"openclaw --version","token":"..."}'
+
+# Test Host Executor from container
+docker compose exec backend wget -qO- \
+  --post-data='{"command":"openclaw --version","token":"..."}' \
+  --header='Content-Type: application/json' \
+  http://172.17.0.1:3002/exec
+
+# Test Gateway from container
+docker compose exec backend wget -qO- \
+  http://host.docker.internal:18789
 ```
 
-## Environment Variables Reference
+### База данных
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| JWT_SECRET | Yes | Secret for JWT signing |
-| NODE_ENV | Yes | Environment mode (production/development) |
-| GATEWAY_URL | Yes | OpenClaw Gateway WebSocket URL |
-| GATEWAY_TOKEN | Yes | Token for Gateway auth |
-| SSH_HOST | No | SSH server host (default: host.docker.internal) |
-| SSH_USER | No | SSH username (default: root) |
-| SSH_PORT | No | SSH port (default: 22) |
-| SSH_KEY_PATH | No | Path to SSH private key |
-| SQLITE_PATH | No | SQLite database path |
-| RATE_LIMIT_WINDOW | No | Rate limit window ms (default: 60000) |
-| RATE_LIMIT_MAX | No | Max requests per window (default: 100) |
+```bash
+# Access SQLite from host
+sudo sqlite3 /var/lib/docker/volumes/clawpanel_backend-data/_data/clawpanel.db
 
-## File Structure
-
-```
-backend/src/
-├── index.ts              # Entry point, Express setup
-├── config/
-│   └── index.ts          # Configuration from env
-├── database/
-│   ├── index.ts          # SQLite connection
-│   ├── migrate.ts        # Migration runner
-│   └── schema.ts         # Table definitions
-├── middleware/
-│   ├── auth.ts           # JWT authentication
-│   ├── error.ts          # Error handling
-│   └── rateLimit.ts      # Rate limiting
-├── routes/
-│   ├── auth.ts           # Auth endpoints
-│   ├── agents.ts         # Agent management
-│   ├── llm.ts            # LLM providers
-│   ├── skills.ts         # Skill management
-│   ├── files.ts          # File operations
-│   └── stats.ts          # Statistics
-├── services/
-│   ├── gateway.ts        # Gateway WebSocket client
-│   ├── agentRunner.ts    # CLI fallback for agents
-│   └── ssh.ts            # SSH terminal
-├── utils/
-│   ├── logger.ts         # Winston logger
-│   └── hash.ts           # Password hashing
-└── websocket/
-    └── index.ts          # WebSocket server
-
-frontend/src/
-├── App.tsx               # Main app component
-├── main.tsx              # Entry point
-├── components/           # Reusable UI components
-├── pages/                # Page components
-│   ├── Dashboard.tsx
-│   ├── Agents.tsx
-│   ├── Chat.tsx          # Agent chat (WebSocket)
-│   ├── Terminal.tsx      # SSH terminal
-│   ├── LLMProviders.tsx
-│   ├── Skills.tsx
-│   ├── Chains.tsx
-│   ├── Channels.tsx
-│   ├── Files.tsx
-│   ├── Stats.tsx
-│   ├── Settings.tsx
-│   └── Login.tsx
-├── services/             # API clients
-├── stores/               # Zustand stores
-└── types/                # TypeScript types
+# Common queries
+.tables
+SELECT * FROM users;
+SELECT * FROM agents;
+SELECT * FROM channels;
 ```
 
-## Gateway Event Types
+## Разработка
 
-Subscribe to events using `gatewayService.on(event, handler)`:
+### Локальная разработка backend
 
-| Event | Payload | Description |
-|-------|---------|-------------|
-| agent | { sessionKey, stream, data } | Agent responses |
-| chat | { message, sender } | Chat messages |
-| stats | { tokens, requests } | Usage statistics |
-| lifecycle | { phase } | Lifecycle events |
-
-Agent response format:
-```typescript
-interface AgentEvent {
-  sessionKey: string;  // "agent:clawpanel-{id}:main"
-  stream: 'user' | 'assistant' | 'lifecycle';
-  data: {
-    text?: string;
-    phase?: 'start' | 'thinking' | 'end';
-  };
-}
+```bash
+cd backend
+npm install
+npm run dev  # Uses tsx watch
 ```
 
-## Important Notes
+### Локальная разработка frontend
 
-1. **Never expose** `JWT_SECRET` or `GATEWAY_TOKEN` in logs or responses
-2. **Always** clean up event subscriptions in `useEffect` return functions
-3. **Always** validate user input at API boundary
-4. **Prefer** token auth for Gateway (password mode has limited permissions)
-5. **Test** with multiple agents to ensure no cross-contamination
-6. **Use** `clawpanel-{id}` naming convention for agents
-7. **SSH** terminal requires proper key setup — always test in fresh container
+```bash
+cd frontend
+npm install
+npm run dev  # Vite dev server
+```
 
-## Version Info
+### Пересборка Docker
 
-- Node.js: 24 LTS
-- React: 18.x
-- TypeScript: 5.x
-- Express: 4.x
-- SQLite: 3.x
-- xterm.js: 5.x
-- Zustand: 4.x
-- Tailwind CSS: 3.x
+```bash
+# Full rebuild
+docker compose down
+docker compose build --no-cache
+docker compose up -d
 
-## Contributing
+# Single service
+docker compose build --no-cache backend
+docker compose up -d backend
+```
 
-See CONTRIBUTING.md for details.
+## Распространенные проблемы
 
-## License
+### "Host Executor unavailable"
 
-MIT License - see LICENSE file for details.
+```bash
+# 1. Check service status
+sudo systemctl status clawpanel-host-executor
+
+# 2. Check port
+sudo ss -tlnp | grep 3002
+
+# 3. Check iptables
+sudo iptables -L INPUT -n | grep 3002
+sudo iptables -L DOCKER -n | grep 3002
+
+# 4. Restart service
+sudo systemctl restart clawpanel-host-executor
+```
+
+### "Gateway WebSocket handshake failed"
+
+```bash
+# 1. Check service status
+sudo systemctl status openclaw-gateway
+
+# 2. Check token match
+cat ~/.openclaw/openclaw.json | jq '.gateway.auth.token'
+cat .env | grep GATEWAY_TOKEN
+
+# 3. Check network from container
+docker compose exec backend wget http://host.docker.internal:18789
+```
+
+### "Cannot execute openclaw command"
+
+Убедитесь, что:
+1. Команда начинается с `openclaw `
+2. Токен Host Executor правильный
+3. OpenClaw установлен на хосте: `which openclaw`
+
+## Ссылки
+
+- [OpenClaw Documentation](https://github.com/openclaw/openclaw)
+- [Gateway Protocol Specification](https://github.com/openclaw/openclaw/blob/main/docs/gateway-protocol.md)
+- [React Documentation](https://react.dev/)
+- [Express.js Documentation](https://expressjs.com/)

@@ -7,14 +7,12 @@ import { auditLog } from '../middleware/audit';
 import { 
   setupTelegramChannel, 
   removeTelegramChannel, 
-  getChannelStatus,
   restartGateway 
-} from '../services/channelManager';
+} from '../services/hostExecutor';
 import { logger } from '../utils/logger';
 
 const router = Router();
 
-// List channels
 router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const channels = db.prepare(`
@@ -24,22 +22,16 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
     ORDER BY c.created_at DESC
   `).all();
   
-  // Get actual status from OpenClaw
-  const status = await getChannelStatus();
-  
   res.json({
     success: true,
     data: channels.map(c => ({
       ...c,
       config: c.config ? JSON.parse(c.config) : {},
       allow_from: c.allow_from ? JSON.parse(c.allow_from) : [],
-      // Override status with actual OpenClaw status
-      status: c.type === 'telegram' && status.telegram ? 'online' : c.status,
     })),
   });
 }));
 
-// Get single channel
 router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const channel = db.prepare(`
@@ -49,9 +41,7 @@ router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
     WHERE c.id = ?
   `).get(req.params.id);
   
-  if (!channel) {
-    throw new NotFoundError('Channel not found');
-  }
+  if (!channel) throw new NotFoundError('Channel not found');
   
   res.json({
     success: true,
@@ -63,41 +53,13 @@ router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Get available agents for channel binding
-router.get('/agents/available', authenticateToken, asyncHandler(async (req, res) => {
-  const db = getDatabase();
-  const agents = db.prepare(`
-    SELECT id, name, color FROM agents WHERE enabled = 1 ORDER BY name
-  `).all();
-  
-  res.json({
-    success: true,
-    data: agents,
-  });
-}));
-
-// Create channel
 router.post('/', authenticateToken, requireAdmin, auditLog('create', 'channel'), asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const {
-    type,
-    name,
-    config,
-    agent_id,
-    allow_from,
-    dm_policy,
-  } = req.body;
+  const { type, name, config, agent_id, allow_from, dm_policy } = req.body;
   
-  if (!type || !name) {
-    throw new ValidationError('Type and name are required');
-  }
+  if (!type || !name) throw new ValidationError('Type and name are required');
   
-  const validTypes = ['telegram', 'discord', 'whatsapp', 'slack', 'signal', 'msteams'];
-  if (!validTypes.includes(type)) {
-    throw new ValidationError(`Invalid channel type. Must be one of: ${validTypes.join(', ')}`);
-  }
-  
-  // For Telegram, configure in OpenClaw
+  // Configure Telegram in OpenClaw via host executor
   if (type === 'telegram' && config?.botToken) {
     try {
       await setupTelegramChannel(
@@ -105,9 +67,9 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'channel'),
         dm_policy || 'pairing',
         allow_from || []
       );
-      logger.info('Telegram channel configured in OpenClaw');
+      logger.info('Telegram configured in OpenClaw');
     } catch (error: any) {
-      logger.error('Failed to configure Telegram in OpenClaw:', error);
+      logger.error('Failed to configure Telegram:', error);
       throw new ValidationError(`Failed to configure Telegram: ${error.message}`);
     }
   }
@@ -116,13 +78,8 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'channel'),
     INSERT INTO channels (type, name, config, agent_id, allow_from, dm_policy, status)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
-    type,
-    name,
-    config ? JSON.stringify(config) : '{}',
-    agent_id || null,
-    allow_from ? JSON.stringify(allow_from) : '[]',
-    dm_policy || 'pairing',
-    type === 'telegram' ? 'online' : 'offline'
+    type, name, JSON.stringify(config || {}), agent_id || null,
+    JSON.stringify(allow_from || []), dm_policy || 'pairing', 'online'
   );
   
   res.status(201).json({
@@ -131,130 +88,57 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'channel'),
   });
 }));
 
-// Update channel
 router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'channel'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
-  
-  if (!channel) {
-    throw new NotFoundError('Channel not found');
-  }
+  if (!channel) throw new NotFoundError('Channel not found');
   
   const updates = req.body;
   const fields: string[] = [];
   const values: any[] = [];
   
-  const jsonFields = ['config', 'allow_from'];
-  
   for (const [key, value] of Object.entries(updates)) {
     if (value !== undefined) {
       fields.push(`${key} = ?`);
-      values.push(jsonFields.includes(key) ? JSON.stringify(value) : value);
-    }
-  }
-  
-  // If Telegram config updated, sync with OpenClaw
-  if (channel.type === 'telegram' && updates.config?.botToken) {
-    try {
-      await setupTelegramChannel(
-        updates.config.botToken,
-        updates.dm_policy || channel.dm_policy,
-        updates.allow_from || JSON.parse(channel.allow_from || '[]')
-      );
-      logger.info('Telegram channel updated in OpenClaw');
-    } catch (error: any) {
-      logger.error('Failed to update Telegram in OpenClaw:', error);
-      throw new ValidationError(`Failed to update Telegram: ${error.message}`);
+      values.push(['config', 'allow_from'].includes(key) ? JSON.stringify(value) : value);
     }
   }
   
   if (fields.length > 0) {
     values.push(req.params.id);
-    db.prepare(`UPDATE channels SET ${fields.join(', ')}, updated_at = unixepoch() WHERE id = ?`)
-      .run(...values);
+    db.prepare(`UPDATE channels SET ${fields.join(', ')}, updated_at = unixepoch() WHERE id = ?`).run(...values);
   }
   
-  res.json({
-    success: true,
-    message: 'Channel updated successfully',
-  });
+  res.json({ success: true, message: 'Channel updated' });
 }));
 
-// Delete channel
 router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'channel'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
+  if (!channel) throw new NotFoundError('Channel not found');
   
-  if (!channel) {
-    throw new NotFoundError('Channel not found');
-  }
-  
-  // For Telegram, disable in OpenClaw
   if (channel.type === 'telegram') {
-    try {
-      await removeTelegramChannel();
-      logger.info('Telegram channel disabled in OpenClaw');
-    } catch (error: any) {
-      logger.error('Failed to disable Telegram in OpenClaw:', error);
-      // Continue with deletion even if OpenClaw fails
-    }
+    try { await removeTelegramChannel(); } catch (e) { /* ignore */ }
   }
   
-  const result = db.prepare('DELETE FROM channels WHERE id = ?').run(req.params.id);
-  
-  if (result.changes === 0) {
-    throw new NotFoundError('Channel not found');
-  }
-  
-  res.json({
-    success: true,
-    message: 'Channel deleted successfully',
-  });
+  db.prepare('DELETE FROM channels WHERE id = ?').run(req.params.id);
+  res.json({ success: true, message: 'Channel deleted' });
 }));
 
-// Test channel connection
 router.post('/:id/test', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
-  
-  if (!channel) {
-    throw new NotFoundError('Channel not found');
-  }
-  
-  // Get actual status from OpenClaw
-  const status = await getChannelStatus();
-  
-  let connected = false;
-  if (channel.type === 'telegram') {
-    connected = status.telegram;
-  }
-  
-  // Update channel status in DB
-  db.prepare('UPDATE channels SET status = ? WHERE id = ?')
-    .run(connected ? 'online' : 'offline', req.params.id);
+  if (!channel) throw new NotFoundError('Channel not found');
   
   res.json({
     success: true,
-    data: {
-      connected,
-      type: channel.type,
-    },
+    data: { connected: channel.status === 'online', type: channel.type },
   });
 }));
 
-// Restart Gateway (apply channel changes)
 router.post('/actions/restart-gateway', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  try {
-    await restartGateway();
-    
-    res.json({
-      success: true,
-      message: 'Gateway restart initiated',
-    });
-  } catch (error: any) {
-    logger.error('Failed to restart Gateway:', error);
-    throw new ValidationError(`Failed to restart Gateway: ${error.message}`);
-  }
+  await restartGateway();
+  res.json({ success: true, message: 'Gateway restarted' });
 }));
 
 export default router;
