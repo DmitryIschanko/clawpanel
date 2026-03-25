@@ -201,7 +201,7 @@ function AgentModal({
 }: {
   agent?: Agent
   onClose: () => void
-  onSave: (data: Partial<Agent>) => void
+  onSave: (data: Partial<Agent>) => Promise<void>
 }) {
   const [formData, setFormData] = useState<Partial<Agent>>({
     name: agent?.name || '',
@@ -212,6 +212,7 @@ function AgentModal({
     temperature: agent?.temperature ?? 0.7,
     max_tokens: agent?.max_tokens ?? 4096,
   })
+  const [isSaving, setIsSaving] = useState(false)
 
   const accessToken = useAuthStore((state) => state.accessToken)
   
@@ -328,16 +329,29 @@ function AgentModal({
         </div>
 
         <div className="flex justify-end gap-2 mt-6">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80">
+          <button 
+            onClick={onClose} 
+            disabled={isSaving}
+            className="px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80 disabled:opacity-50"
+          >
             Cancel
           </button>
           <button
-            onClick={() => onSave(formData)}
-            disabled={!formData.name}
+            onClick={async () => {
+              if (isSaving) return
+              setIsSaving(true)
+              try {
+                await onSave(formData)
+              } finally {
+                setIsSaving(false)
+              }
+            }}
+            disabled={!formData.name || isSaving}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
+            {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
             <Save className="w-4 h-4" />
-            {agent ? 'Update' : 'Create'}
+            {isSaving ? 'Saving...' : (agent ? 'Update' : 'Create')}
           </button>
         </div>
       </div>
