@@ -38,6 +38,7 @@ export interface LLMProvider {
   base_url?: string
   enabled: boolean
   models: LLMModel[]
+  has_key?: boolean
 }
 
 export interface LLMModel {

@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { gatewayService } from '../services/gateway';
+import { sendMessageToAgent } from '../services/agentRunner';
 import * as pty from 'node-pty';
 
 interface Client {

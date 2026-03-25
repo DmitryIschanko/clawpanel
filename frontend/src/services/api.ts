@@ -103,6 +103,8 @@ export const llmApi = {
   getProviders: () => api.get('/llm/providers'),
   testProvider: (id: number) => api.post(`/llm/providers/${id}/test`),
   getModels: () => api.get('/llm/models'),
+  setApiKey: (id: number, apiKey: string) => api.put(`/llm/providers/${id}/api-key`, { apiKey }),
+  deleteApiKey: (id: number) => api.delete(`/llm/providers/${id}/api-key`),
 }
 
 // Sessions API

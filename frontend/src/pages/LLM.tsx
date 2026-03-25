@@ -1,12 +1,124 @@
 import { useState } from 'react'
-import { useQuery } from 'react-query'
-import { Brain, RefreshCw, Loader2, Check, AlertCircle, Key } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from 'react-query'
+import { Brain, RefreshCw, Loader2, Check, AlertCircle, Key, Eye, EyeOff, Save, Trash2 } from 'lucide-react'
 import { llmApi } from '../services/api'
 import type { LLMProvider } from '../types'
+
+function ApiKeyInput({ provider, onSave }: { provider: LLMProvider; onSave: () => void }) {
+  const [showKey, setShowKey] = useState(false)
+  const [apiKey, setApiKey] = useState('')
+  const [isEditing, setIsEditing] = useState(false)
+  const queryClient = useQueryClient()
+  
+  const saveMutation = useMutation(
+    (key: string) => llmApi.setApiKey(provider.id, key),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries('llm-providers')
+        setIsEditing(false)
+        setApiKey('')
+        onSave()
+      },
+    }
+  )
+  
+  const deleteMutation = useMutation(
+    () => llmApi.deleteApiKey(provider.id),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries('llm-providers')
+        onSave()
+      },
+    }
+  )
+  
+  if (!isEditing) {
+    return (
+      <div className="flex items-center gap-2">
+        {provider.has_key ? (
+          <>
+            <span className="flex items-center gap-1 text-sm text-green-500">
+              <Check className="w-4 h-4" />
+              API key configured
+            </span>
+            <button
+              onClick={() => setIsEditing(true)}
+              className="text-sm text-primary hover:underline"
+            >
+              Update
+            </button>
+            <button
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isLoading}
+              className="text-sm text-red-500 hover:text-red-600 disabled:opacity-50"
+            >
+              {deleteMutation.isLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => setIsEditing(true)}
+            className="flex items-center gap-1 text-sm text-primary hover:underline"
+          >
+            <Key className="w-4 h-4" />
+            Add API key
+          </button>
+        )}
+      </div>
+    )
+  }
+  
+  return (
+    <div className="flex items-center gap-2">
+      <div className="relative">
+        <input
+          type={showKey ? 'text' : 'password'}
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder="Enter API key"
+          className="w-64 px-3 py-1.5 pr-10 rounded-lg bg-secondary border-0 text-sm focus:ring-2 focus:ring-primary"
+          autoFocus
+        />
+        <button
+          onClick={() => setShowKey(!showKey)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+        >
+          {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        </button>
+      </div>
+      <button
+        onClick={() => saveMutation.mutate(apiKey)}
+        disabled={!apiKey.trim() || saveMutation.isLoading}
+        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm disabled:opacity-50"
+      >
+        {saveMutation.isLoading ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <Save className="w-4 h-4" />
+        )}
+        Save
+      </button>
+      <button
+        onClick={() => {
+          setIsEditing(false)
+          setApiKey('')
+        }}
+        className="px-3 py-1.5 rounded-lg bg-secondary text-sm hover:bg-secondary/80"
+      >
+        Cancel
+      </button>
+    </div>
+  )
+}
 
 export function LLMPage() {
   const [testingProvider, setTestingProvider] = useState<number | null>(null)
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({})
+  const queryClient = useQueryClient()
   
   const { data: providers, isLoading, refetch } = useQuery<LLMProvider[]>(
     'llm-providers',
@@ -102,6 +214,13 @@ export function LLMPage() {
                 </button>
               </div>
 
+              <div className="mt-4 pt-4 border-t border-border">
+                <ApiKeyInput 
+                  provider={provider} 
+                  onSave={() => refetch()} 
+                />
+              </div>
+
               {testResults[provider.id] && (
                 <div className={`mt-4 p-3 rounded-lg flex items-center gap-2 ${
                   testResults[provider.id].success ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
@@ -122,7 +241,11 @@ export function LLMPage() {
                     {provider.models.map((model) => (
                       <div
                         key={model.id}
-                        className="px-3 py-1.5 rounded-lg bg-secondary text-sm"
+                        className={`px-3 py-1.5 rounded-lg text-sm ${
+                          provider.has_key 
+                            ? 'bg-secondary' 
+                            : 'bg-muted text-muted-foreground'
+                        }`}
                         title={`Input: $${model.pricing.input}/1M, Output: $${model.pricing.output}/1M`}
                       >
                         <div className="font-medium">{model.name}</div>
@@ -138,21 +261,6 @@ export function LLMPage() {
           ))}
         </div>
       )}
-
-      <div className="bg-card border border-border rounded-xl p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Key className="w-5 h-5 text-muted-foreground" />
-          <h3 className="font-semibold">API Keys</h3>
-        </div>
-        <p className="text-sm text-muted-foreground mb-4">
-          API keys are stored in environment variables. Set them in your <code>~/.openclaw/openclaw.json</code> or environment.
-        </p>
-        <div className="bg-muted rounded-lg p-4 font-mono text-sm space-y-1">
-          <p><span className="text-green-400">ANTHROPIC_API_KEY</span>=sk-ant-...</p>
-          <p><span className="text-green-400">OPENAI_API_KEY</span>=sk-...</p>
-          <p><span className="text-green-400">GOOGLE_API_KEY</span>=...</p>
-        </div>
-      </div>
     </div>
   )
 }

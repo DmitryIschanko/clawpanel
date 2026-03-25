@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from 'react-query'
 import { Bot, Save, Loader2, CheckCircle2 } from 'lucide-react'
 import Editor from '@monaco-editor/react'
-import { agentsApi } from '../services/api'
+import { agentsApi, llmApi } from '../services/api'
 import { AgentSkills } from '../components/AgentSkills'
 import type { Agent } from '../types'
 
@@ -27,6 +27,14 @@ export function AgentDetailPage() {
     temperature: 0.7,
     max_tokens: 4096,
   })
+
+  const { data: availableModels } = useQuery(
+    'available-models',
+    async () => {
+      const response = await llmApi.getModels()
+      return response.data.data
+    }
+  )
 
   const { data: agent, isLoading } = useQuery<Agent>(
     ['agent', id],
@@ -217,9 +225,11 @@ export function AgentDetailPage() {
                   className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
                 >
                   <option value="">Default</option>
-                  <option value="anthropic/claude-opus-4">Claude Opus 4</option>
-                  <option value="openai/gpt-4o">GPT-4o</option>
-                  <option value="kimi/kimi-code">Kimi Code</option>
+                  {availableModels?.map((model: any) => (
+                    <option key={model.id} value={`${model.provider}/${model.id}`}>
+                      {model.providerName} - {model.name}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>

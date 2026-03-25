@@ -11,6 +11,7 @@ services:
       - PORT=3000
       - GATEWAY_URL=ws://host.docker.internal:18789
       - GATEWAY_PASSWORD=clawpanel-secure-password
+      - GATEWAY_TOKEN=bb47b7dd98fd6e47f64f50a169a95d942fc89918e2db9da4
       - JWT_SECRET=${JWT_SECRET:-clawpanel-secret-change-in-production}
       - JWT_ACCESS_TTL=15m
       - JWT_REFRESH_TTL=7d

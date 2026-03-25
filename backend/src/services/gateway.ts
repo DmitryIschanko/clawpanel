@@ -26,11 +26,13 @@ class GatewayService {
   private connectNonce: string | null = null;
   private gatewayUrl: string;
   private gatewayPassword: string;
+  private gatewayToken: string;
   private isAuthenticated: boolean = false;
 
   constructor() {
     this.gatewayUrl = process.env.GATEWAY_URL || 'ws://172.17.0.1:18789';
     this.gatewayPassword = process.env.GATEWAY_PASSWORD || '';
+    this.gatewayToken = process.env.GATEWAY_TOKEN || '';
   }
 
   connect(): void {
@@ -165,9 +167,9 @@ class GatewayService {
         caps: [],
         commands: [],
         permissions: {},
-        auth: {
-          password: this.gatewayPassword
-        },
+        auth: this.gatewayToken 
+          ? { token: this.gatewayToken }
+          : { password: this.gatewayPassword },
         locale: 'en-US',
         userAgent: 'clawpanel/1.0.0'
       }
