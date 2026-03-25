@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from 'react-query'
-import { Plus, Globe, Clock, Webhook, Trash2, Loader2, CheckCircle2 } from 'lucide-react'
-import { toolsApi } from '../services/api'
+import { Plus, Globe, Clock, Webhook, Trash2, Loader2, CheckCircle2, Bot } from 'lucide-react'
+import { toolsApi, agentsApi } from '../services/api'
 
 interface Tool {
   id: number
@@ -11,6 +11,11 @@ interface Tool {
   enabled: boolean
   agentId?: number
   createdAt: number
+}
+
+interface Agent {
+  id: number
+  name: string
 }
 
 const toolIcons = {
@@ -27,20 +32,35 @@ const toolLabels = {
 
 export function ToolsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-  const [newTool, setNewTool] = useState({ name: '', type: 'browser' as const, config: {} })
+  const [newTool, setNewTool] = useState({ name: '', type: 'browser' as const, agentId: 0, config: {} })
   
-  const { data: tools, isLoading, refetch } = useQuery<Tool[]>('tools', async () => {
+  const { data: tools, isLoading: toolsLoading, refetch: refetchTools } = useQuery<Tool[]>('tools', async () => {
     const response = await toolsApi.list()
     return response.data.data
   })
 
+  const { data: agents, isLoading: agentsLoading } = useQuery<Agent[]>('agents-list', async () => {
+    const response = await agentsApi.list()
+    return response.data.data
+  })
+
+  const getAgentName = (agentId?: number) => {
+    if (!agentId) return null
+    const agent = agents?.find(a => a.id === agentId)
+    return agent?.name || `Agent #${agentId}`
+  }
+
   const handleCreate = async () => {
     if (!newTool.name) return
     try {
-      await toolsApi.create(newTool)
+      const data: any = { name: newTool.name, type: newTool.type, config: {} }
+      if (newTool.agentId > 0) {
+        data.agentId = newTool.agentId
+      }
+      await toolsApi.create(data)
       setIsCreateModalOpen(false)
-      setNewTool({ name: '', type: 'browser', config: {} })
-      refetch()
+      setNewTool({ name: '', type: 'browser', agentId: 0, config: {} })
+      refetchTools()
     } catch (error) {
       alert('Failed to create tool')
     }
@@ -50,7 +70,7 @@ export function ToolsPage() {
     if (!confirm('Delete this tool?')) return
     try {
       await toolsApi.delete(id)
-      refetch()
+      refetchTools()
     } catch (error) {
       alert('Failed to delete tool')
     }
@@ -59,13 +79,22 @@ export function ToolsPage() {
   const toggleEnabled = async (tool: Tool) => {
     try {
       await toolsApi.update(tool.id, { enabled: !tool.enabled })
-      refetch()
+      refetchTools()
     } catch (error) {
       alert('Failed to update tool')
     }
   }
 
-  if (isLoading) {
+  const assignAgent = async (toolId: number, agentId: number) => {
+    try {
+      await toolsApi.update(toolId, { agentId: agentId > 0 ? agentId : null })
+      refetchTools()
+    } catch (error) {
+      alert('Failed to assign agent')
+    }
+  }
+
+  if (toolsLoading || agentsLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-8 h-8 animate-spin" />
@@ -99,55 +128,76 @@ export function ToolsPage() {
         <div className="grid grid-cols-1 gap-4">
           {tools?.map((tool) => {
             const Icon = toolIcons[tool.type]
+            const agentName = getAgentName(tool.agentId)
             return (
               <div
                 key={tool.id}
-                className="bg-card border border-border rounded-xl p-4 flex items-center justify-between"
+                className="bg-card border border-border rounded-xl p-4"
               >
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                    tool.enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-                  }`}>
-                    <Icon className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold">{tool.name}</h3>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-secondary">
-                        {toolLabels[tool.type]}
-                      </span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                      tool.enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      <Icon className="w-5 h-5" />
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      {tool.enabled ? 'Active' : 'Disabled'}
-                      {tool.agentId && ` • Assigned to agent #${tool.agentId}`}
-                    </p>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold">{tool.name}</h3>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-secondary">
+                          {toolLabels[tool.type]}
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {tool.enabled ? 'Active' : 'Disabled'}
+                        {agentName && (
+                          <span className="ml-2 text-green-500">• {agentName}</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    {tool.enabled && (
+                      <span className="text-green-500">
+                        <CheckCircle2 className="w-4 h-4" />
+                      </span>
+                    )}
+
+                    <button
+                      onClick={() => toggleEnabled(tool)}
+                      className={`px-3 py-1 rounded-lg text-sm ${
+                        tool.enabled
+                          ? 'bg-green-500/10 text-green-500'
+                          : 'bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      {tool.enabled ? 'Enabled' : 'Disabled'}
+                    </button>
+
+                    <button
+                      onClick={() => handleDelete(tool.id)}
+                      className="p-2 rounded-lg hover:bg-destructive/10 text-destructive"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  {tool.enabled && (
-                    <span className="text-green-500">
-                      <CheckCircle2 className="w-4 h-4" />
-                    </span>
-                  )}
-
-                  <button
-                    onClick={() => toggleEnabled(tool)}
-                    className={`px-3 py-1 rounded-lg text-sm ${
-                      tool.enabled
-                        ? 'bg-green-500/10 text-green-500'
-                        : 'bg-muted text-muted-foreground'
-                    }`}
+                {/* Agent assignment */}
+                <div className="mt-4 pt-4 border-t border-border flex items-center gap-3">
+                  <Bot className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Assign to agent:</span>
+                  <select
+                    value={tool.agentId || 0}
+                    onChange={(e) => assignAgent(tool.id, parseInt(e.target.value))}
+                    className="px-3 py-1 rounded-lg bg-secondary border border-border text-sm"
                   >
-                    {tool.enabled ? 'Enabled' : 'Disabled'}
-                  </button>
-
-                  <button
-                    onClick={() => handleDelete(tool.id)}
-                    className="p-2 rounded-lg hover:bg-destructive/10 text-destructive"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                    <option value={0}>All agents (global)</option>
+                    {agents?.map((agent) => (
+                      <option key={agent.id} value={agent.id}>{agent.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             )
@@ -181,6 +231,22 @@ export function ToolsPage() {
                   <option value="cron">Cron Job</option>
                   <option value="webhook">Webhook</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Assign to Agent</label>
+                <select
+                  value={newTool.agentId}
+                  onChange={(e) => setNewTool({ ...newTool, agentId: parseInt(e.target.value) })}
+                  className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
+                >
+                  <option value={0}>All agents (global)</option>
+                  {agents?.map((agent) => (
+                    <option key={agent.id} value={agent.id}>{agent.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  If not assigned, tool will be available to all agents
+                </p>
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-6">
