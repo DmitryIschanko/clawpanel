@@ -4,6 +4,7 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { gatewayService } from '../services/gateway';
 import { sendMessageToAgent } from '../services/agentRunner';
+import { getChatHistory, saveMessage } from '../services/chatHistory';
 import * as pty from 'node-pty';
 
 interface Client {
@@ -72,12 +73,22 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
 
 function handleChatConnection(client: Client, url: URL): void {
   // Extract agent ID from URL
-  const agentId = url.searchParams.get('agent');
+  const agentIdParam = url.searchParams.get('agent');
   
-  if (!agentId) {
+  if (!agentIdParam) {
     client.ws.close(1008, 'Agent ID required');
     return;
   }
+  
+  // Parse agent ID as number
+  const agentId = parseInt(agentIdParam, 10);
+  if (isNaN(agentId)) {
+    client.ws.close(1008, 'Invalid agent ID');
+    return;
+  }
+  
+  // Store agentId on client for later use
+  (client as any).agentId = agentId;
   
   // Authenticate
   const token = url.searchParams.get('token');
@@ -94,10 +105,39 @@ function handleChatConnection(client: Client, url: URL): void {
     return;
   }
   
+  // Load and send chat history
+  try {
+    const history = getChatHistory(agentId, 50);
+    logger.info(`Loaded ${history.length} messages from history for agent ${agentId}`);
+    
+    // Send history to client
+    client.ws.send(JSON.stringify({
+      type: 'history',
+      payload: {
+        messages: history.map(msg => ({
+          id: msg.id.toString(),
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.created_at * 1000, // Convert to milliseconds
+        }))
+      }
+    }));
+  } catch (error) {
+    logger.error('Failed to load chat history:', error);
+    // Continue without history - not fatal
+  }
+  
   // Subscribe to Gateway events for this agent
   let fullResponse = '';
+  let responseModel: string | undefined;
+  
   const unsubscribe = gatewayService.on('agent', (payload: any) => {
     const expectedSessionKey = `agent:clawpanel-${agentId}:main`;
+    
+    // Store model info if available
+    if (payload.data?.model) {
+      responseModel = payload.data.model;
+    }
     
     // Accumulate text chunks
     if (payload.sessionKey === expectedSessionKey && payload.stream === 'assistant' && payload.data?.text) {
@@ -107,6 +147,20 @@ function handleChatConnection(client: Client, url: URL): void {
     // Send final message when stream ends
     if (payload.sessionKey === expectedSessionKey && payload.stream === 'lifecycle' && payload.data?.phase === 'end' && fullResponse) {
       logger.info(`Sending final assistant message to client for agent ${agentId}: ${fullResponse.substring(0,50)}`);
+      
+      // Save assistant message to database
+      try {
+        const saved = saveMessage({
+          agentId,
+          role: 'assistant',
+          content: fullResponse,
+          model: responseModel,
+        });
+        logger.info(`Saved assistant message to history: ${saved.id}`);
+      } catch (error) {
+        logger.error('Failed to save assistant message:', error);
+      }
+      
       client.ws.send(JSON.stringify({
         type: 'message',
         payload: {
@@ -115,6 +169,7 @@ function handleChatConnection(client: Client, url: URL): void {
         },
       }));
       fullResponse = '';
+      responseModel = undefined;
     }
   });
   
@@ -177,6 +232,22 @@ function handleMessage(client: Client, message: string): void {
       logger.info(`Received chat message for agent ${agentId}: ${content.substring(0, 50)}...`);
       
       if (agentId && content) {
+        // Save user message to database first
+        try {
+          const numericAgentId = parseInt(agentId, 10);
+          if (!isNaN(numericAgentId)) {
+            const saved = saveMessage({
+              agentId: numericAgentId,
+              role: 'user',
+              content: content,
+            });
+            logger.info(`Saved user message to history: ${saved.id}`);
+          }
+        } catch (error) {
+          logger.error('Failed to save user message:', error);
+          // Continue anyway - sending is more important than saving
+        }
+        
         // Use CLI instead of Gateway WebSocket (no write permissions with token auth)
         sendMessageToAgent(agentId, content).then(() => {
           logger.info(`Message sent to agent ${agentId} successfully`);

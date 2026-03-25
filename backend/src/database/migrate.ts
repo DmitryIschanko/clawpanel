@@ -193,6 +193,31 @@ const migrations = [
     updated_at INTEGER DEFAULT (unixepoch())
   );
   `,
+  
+  // Chat messages table - stores last N messages per agent
+  `
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    role TEXT NOT NULL, -- 'user' or 'assistant'
+    content TEXT NOT NULL,
+    tokens_used INTEGER DEFAULT 0,
+    model TEXT, -- model used for response
+    session_id TEXT, -- optional session identifier
+    created_at INTEGER DEFAULT (unixepoch()),
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+  );
+  `,
+  
+  // Create index for faster queries by agent_id
+  `
+  CREATE INDEX IF NOT EXISTS idx_chat_messages_agent_id ON chat_messages(agent_id);
+  `,
+  
+  // Create index for created_at for sorting
+  `
+  CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at);
+  `,
 ];
 
 const seeds = [
@@ -222,13 +247,36 @@ async function migrate() {
   
   try {
     for (const migration of migrations) {
-      db.exec(migration);
+      try {
+        db.exec(migration);
+      } catch (error: any) {
+        // Ignore duplicate column errors (migrations that already ran)
+        if (error.message && error.message.includes('duplicate column name')) {
+          console.log(`Skipping migration (column already exists): ${error.message}`);
+          continue;
+        }
+        // Ignore duplicate index errors
+        if (error.message && error.message.includes('index idx_')) {
+          console.log(`Skipping migration (index already exists): ${error.message}`);
+          continue;
+        }
+        // Re-throw other errors
+        throw error;
+      }
     }
     console.log('Migrations completed successfully');
     
     console.log('Running seeds...');
     for (const seed of seeds) {
-      db.exec(seed);
+      try {
+        db.exec(seed);
+      } catch (error: any) {
+        // Ignore duplicate key errors
+        if (error.message && error.message.includes('UNIQUE constraint failed')) {
+          continue;
+        }
+        throw error;
+      }
     }
     console.log('Seeds completed successfully');
   } catch (error) {

@@ -53,12 +53,21 @@ export function ChatPage() {
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data)
       
-      if (data.type === 'message') {
+      if (data.type === 'history') {
+        // Load chat history from server
+        const historyMessages = data.payload.messages.map((msg: any) => ({
+          id: msg.id,
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp,
+        }))
+        setMessages(historyMessages)
+      } else if (data.type === 'message') {
         setMessages((prev) => [
           ...prev,
           {
             id: Date.now().toString(),
-            role: 'assistant',
+            role: data.payload.role,
             content: data.payload.content,
             timestamp: Date.now(),
           },
