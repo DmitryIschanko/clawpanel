@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useQuery } from 'react-query'
-import { Radio, Plus, Trash2, Loader2, Save, X } from 'lucide-react'
-import { channelsApi } from '../services/api'
+import { useQuery, useQueryClient } from 'react-query'
+import { Radio, Plus, Trash2, Loader2, Save, X, CheckCircle, AlertCircle, RefreshCw, Bot } from 'lucide-react'
+import { channelsApi, agentsApi } from '../services/api'
 import type { Channel } from '../types'
 
 const CHANNEL_TYPES = [
@@ -14,14 +14,17 @@ const CHANNEL_TYPES = [
 ]
 
 const DM_POLICIES = [
-  { value: 'pairing', label: 'Pairing Required' },
-  { value: 'open', label: 'Open' },
-  { value: 'restricted', label: 'Restricted' },
+  { value: 'pairing', label: 'Pairing Required', description: 'Users must pair with agent first' },
+  { value: 'open', label: 'Open', description: 'Anyone can message the agent' },
+  { value: 'restricted', label: 'Restricted', description: 'Only whitelisted users can message' },
 ]
 
 export function ChannelsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-  
+  const [editingChannel, setEditingChannel] = useState<Channel | null>(null)
+  const [isRestarting, setIsRestarting] = useState(false)
+  const queryClient = useQueryClient()
+
   const { data: channels, isLoading, refetch } = useQuery<Channel[]>(
     'channels',
     async () => {
@@ -29,6 +32,11 @@ export function ChannelsPage() {
       return response.data.data
     }
   )
+
+  const { data: agents } = useQuery('agents-list', async () => {
+    const response = await agentsApi.list()
+    return response.data.data
+  })
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -39,14 +47,46 @@ export function ChannelsPage() {
     }
   }
 
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'online': return <CheckCircle className="w-4 h-4 text-green-500" />
+      case 'error': return <AlertCircle className="w-4 h-4 text-red-500" />
+      default: return <Radio className="w-4 h-4 text-gray-500" />
+    }
+  }
+
   const getChannelIcon = (type: string) => {
     return CHANNEL_TYPES.find(t => t.id === type)?.icon || '📡'
   }
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Delete this channel?')) return
+    if (!confirm('Delete this channel? This will disable it in OpenClaw.')) return
     await channelsApi.delete(id)
     refetch()
+  }
+
+  const handleRestartGateway = async () => {
+    if (!confirm('Restart OpenClaw Gateway to apply changes?')) return
+    setIsRestarting(true)
+    try {
+      await channelsApi.restartGateway()
+      alert('Gateway restart initiated. Please wait 10-20 seconds.')
+    } catch (error: any) {
+      alert('Failed to restart Gateway: ' + error.message)
+    } finally {
+      setIsRestarting(false)
+    }
+  }
+
+  const handleTest = async (id: number) => {
+    try {
+      const response = await channelsApi.test(id)
+      const { connected } = response.data.data
+      alert(connected ? 'Channel is connected!' : 'Channel is not connected. Check configuration.')
+      refetch()
+    } catch (error: any) {
+      alert('Test failed: ' + error.message)
+    }
   }
 
   return (
@@ -54,15 +94,25 @@ export function ChannelsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Channels</h1>
-          <p className="text-muted-foreground">Connect messaging platforms</p>
+          <p className="text-muted-foreground">Connect messaging platforms to agents</p>
         </div>
-        <button
-          onClick={() => setIsCreateModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="w-4 h-4" />
-          Add Channel
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleRestartGateway}
+            disabled={isRestarting}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80 disabled:opacity-50"
+          >
+            {isRestarting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Restart Gateway
+          </button>
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="w-4 h-4" />
+            Add Channel
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -93,18 +143,35 @@ export function ChannelsPage() {
                     <p className="text-sm text-muted-foreground capitalize">{channel.type}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDelete(channel.id)}
-                  className="p-1 rounded hover:bg-muted text-destructive"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => handleTest(channel.id)}
+                    className="p-1 rounded hover:bg-muted"
+                    title="Test connection"
+                  >
+                    {getStatusIcon(channel.status)}
+                  </button>
+                  <button
+                    onClick={() => setEditingChannel(channel)}
+                    className="p-1 rounded hover:bg-muted"
+                    title="Edit"
+                  >
+                    <Bot className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(channel.id)}
+                    className="p-1 rounded hover:bg-muted text-destructive"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               
               <div className="mt-4 space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Agent:</span>
-                  <span>{channel.agent_name || 'None'}</span>
+                  <span className="font-medium">{channel.agent_name || 'None (main agent)'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">DM Policy:</span>
@@ -122,10 +189,24 @@ export function ChannelsPage() {
 
       {isCreateModalOpen && (
         <ChannelModal
+          agents={agents || []}
           onClose={() => setIsCreateModalOpen(false)}
           onSave={async (data) => {
             await channelsApi.create(data)
             setIsCreateModalOpen(false)
+            refetch()
+          }}
+        />
+      )}
+
+      {editingChannel && (
+        <ChannelModal
+          channel={editingChannel}
+          agents={agents || []}
+          onClose={() => setEditingChannel(null)}
+          onSave={async (data) => {
+            await channelsApi.update(editingChannel.id, data)
+            setEditingChannel(null)
             refetch()
           }}
         />
@@ -135,20 +216,27 @@ export function ChannelsPage() {
 }
 
 function ChannelModal({
+  channel,
+  agents,
   onClose,
   onSave,
 }: {
+  channel?: Channel | null
+  agents: any[]
   onClose: () => void
   onSave: (data: Partial<Channel>) => void
 }) {
+  const isEditing = !!channel
   const [formData, setFormData] = useState<Partial<Channel>>({
-    type: 'telegram',
-    name: '',
-    dm_policy: 'pairing',
-    allow_from: [],
-    config: {},
+    type: channel?.type || 'telegram',
+    name: channel?.name || '',
+    dm_policy: channel?.dm_policy || 'pairing',
+    allow_from: channel?.allow_from || [],
+    agent_id: channel?.agent_id || null,
+    config: channel?.config || {},
   })
   const [whitelistInput, setWhitelistInput] = useState('')
+  const [botToken, setBotToken] = useState(channel?.config?.botToken || '')
 
   const addToWhitelist = () => {
     if (!whitelistInput.trim()) return
@@ -166,11 +254,26 @@ function ChannelModal({
     })
   }
 
+  const handleSave = () => {
+    const data = {
+      ...formData,
+      config: {
+        ...formData.config,
+        botToken: botToken || undefined,
+      },
+    }
+    onSave(data)
+  }
+
+  const selectedAgent = agents.find(a => a.id === formData.agent_id)
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-card border border-border rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Add Channel</h2>
+          <h2 className="text-lg font-semibold">
+            {isEditing ? 'Edit Channel' : 'Add Channel'}
+          </h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted">
             <X className="w-5 h-5" />
           </button>
@@ -182,7 +285,8 @@ function ChannelModal({
             <select
               value={formData.type}
               onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
+              disabled={isEditing}
+              className="w-full px-3 py-2 rounded-lg bg-secondary border border-border disabled:opacity-50"
             >
               {CHANNEL_TYPES.map((type) => (
                 <option key={type.id} value={type.id}>{type.name}</option>
@@ -201,6 +305,52 @@ function ChannelModal({
             />
           </div>
 
+          {formData.type === 'telegram' && (
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Bot Token
+                <span className="text-xs text-muted-foreground ml-1">(from @BotFather)</span>
+              </label>
+              <input
+                type="password"
+                value={botToken}
+                onChange={(e) => setBotToken(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-secondary border border-border font-mono text-sm"
+                placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                The token will be stored in OpenClaw configuration
+              </p>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Assigned Agent</label>
+            <select
+              value={formData.agent_id || ''}
+              onChange={(e) => setFormData({ ...formData, agent_id: e.target.value ? parseInt(e.target.value) : null })}
+              className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
+            >
+              <option value="">Main Agent (default)</option>
+              {agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name}
+                </option>
+              ))}
+            </select>
+            {selectedAgent && (
+              <div className="flex items-center gap-2 mt-2 text-sm">
+                <div 
+                  className="w-3 h-3 rounded-full" 
+                  style={{ backgroundColor: selectedAgent.color }}
+                />
+                <span className="text-muted-foreground">
+                  Messages will be handled by {selectedAgent.name}
+                </span>
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="block text-sm font-medium mb-1">DM Policy</label>
             <select
@@ -212,6 +362,9 @@ function ChannelModal({
                 <option key={policy.value} value={policy.value}>{policy.label}</option>
               ))}
             </select>
+            <p className="text-xs text-muted-foreground mt-1">
+              {DM_POLICIES.find(p => p.value === formData.dm_policy)?.description}
+            </p>
           </div>
 
           <div>
@@ -223,7 +376,7 @@ function ChannelModal({
                 onChange={(e) => setWhitelistInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && addToWhitelist()}
                 className="flex-1 px-3 py-2 rounded-lg bg-secondary border border-border"
-                placeholder="User ID or username"
+                placeholder="User ID or @username"
               />
               <button
                 onClick={addToWhitelist}
@@ -245,8 +398,13 @@ function ChannelModal({
           </div>
 
           <div className="bg-muted rounded-lg p-4 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground mb-1">Configuration Note:</p>
-            <p>Token/credentials for the channel should be configured in your OpenClaw Gateway config file (~/.openclaw/openclaw.json).</p>
+            <p className="font-medium text-foreground mb-1">How it works:</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>Users message your Telegram bot</li>
+              <li>Messages are routed to the assigned agent</li>
+              <li>Agent responses are sent back to Telegram</li>
+              <li>DM Policy controls who can interact with the bot</li>
+            </ul>
           </div>
         </div>
 
@@ -255,12 +413,12 @@ function ChannelModal({
             Cancel
           </button>
           <button
-            onClick={() => onSave(formData)}
-            disabled={!formData.name}
+            onClick={handleSave}
+            disabled={!formData.name || (formData.type === 'telegram' && !botToken && !isEditing)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             <Save className="w-4 h-4" />
-            Create
+            {isEditing ? 'Save Changes' : 'Create Channel'}
           </button>
         </div>
       </div>

@@ -147,6 +147,7 @@ export const channelsApi = {
   update: (id: number, data: Partial<Channel>) => api.put(`/channels/${id}`, data),
   delete: (id: number) => api.delete(`/channels/${id}`),
   test: (id: number) => api.post(`/channels/${id}/test`),
+  restartGateway: () => api.post('/channels/actions/restart-gateway'),
 }
 
 // Files API
