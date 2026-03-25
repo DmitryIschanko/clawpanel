@@ -127,53 +127,9 @@ function handleChatConnection(client: Client, url: URL): void {
     // Continue without history - not fatal
   }
   
-  // Subscribe to Gateway events for this agent
-  let fullResponse = '';
-  let responseModel: string | undefined;
-  
-  const unsubscribe = gatewayService.on('agent', (payload: any) => {
-    const expectedSessionKey = `agent:clawpanel-${agentId}:main`;
-    
-    // Store model info if available
-    if (payload.data?.model) {
-      responseModel = payload.data.model;
-    }
-    
-    // Accumulate text chunks
-    if (payload.sessionKey === expectedSessionKey && payload.stream === 'assistant' && payload.data?.text) {
-      fullResponse = payload.data.text;
-    }
-    
-    // Send final message when stream ends
-    if (payload.sessionKey === expectedSessionKey && payload.stream === 'lifecycle' && payload.data?.phase === 'end' && fullResponse) {
-      logger.info(`Sending final assistant message to client for agent ${agentId}: ${fullResponse.substring(0,50)}`);
-      
-      // Save assistant message to database
-      try {
-        const saved = saveMessage({
-          agentId,
-          role: 'assistant',
-          content: fullResponse,
-          model: responseModel,
-        });
-        logger.info(`Saved assistant message to history: ${saved.id}`);
-      } catch (error) {
-        logger.error('Failed to save assistant message:', error);
-      }
-      
-      client.ws.send(JSON.stringify({
-        type: 'message',
-        payload: {
-          role: 'assistant',
-          content: fullResponse,
-        },
-      }));
-      fullResponse = '';
-      responseModel = undefined;
-    }
-  });
-  
-  // Store unsubscribe function for cleanup
+  // Note: We don't subscribe to Gateway events anymore because token auth
+  // doesn't have permissions. Instead, we use CLI to get responses directly.
+  const unsubscribe = () => {};
   (client as any).unsubscribeGateway = unsubscribe;
   
   client.ws.send(JSON.stringify({
@@ -233,8 +189,9 @@ function handleMessage(client: Client, message: string): void {
       
       if (agentId && content) {
         // Save user message to database first
+        let numericAgentId: number;
         try {
-          const numericAgentId = parseInt(agentId, 10);
+          numericAgentId = parseInt(agentId, 10);
           if (!isNaN(numericAgentId)) {
             const saved = saveMessage({
               agentId: numericAgentId,
@@ -245,12 +202,37 @@ function handleMessage(client: Client, message: string): void {
           }
         } catch (error) {
           logger.error('Failed to save user message:', error);
-          // Continue anyway - sending is more important than saving
+          numericAgentId = parseInt(agentId, 10);
         }
         
-        // Use CLI instead of Gateway WebSocket (no write permissions with token auth)
-        sendMessageToAgent(agentId, content).then(() => {
-          logger.info(`Message sent to agent ${agentId} successfully`);
+        // Use CLI to send message and get response
+        sendMessageToAgent(agentId, content).then((response) => {
+          logger.info(`Received response from agent ${agentId}: ${response.substring(0, 50)}...`);
+          
+          if (response) {
+            // Save assistant response to database
+            try {
+              if (!isNaN(numericAgentId)) {
+                const saved = saveMessage({
+                  agentId: numericAgentId,
+                  role: 'assistant',
+                  content: response,
+                });
+                logger.info(`Saved assistant message to history: ${saved.id}`);
+              }
+            } catch (error) {
+              logger.error('Failed to save assistant message:', error);
+            }
+            
+            // Send response to client
+            client.ws.send(JSON.stringify({
+              type: 'message',
+              payload: {
+                role: 'assistant',
+                content: response,
+              },
+            }));
+          }
         }).catch((error) => {
           logger.error('Failed to send message via CLI:', error);
           client.ws.send(JSON.stringify({

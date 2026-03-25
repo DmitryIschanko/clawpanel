@@ -208,6 +208,8 @@ class GatewayService {
       }
     };
   }
+  
+
 
   // Send message to agent via Gateway
   sendMessage(agentId: string, content: string): void {

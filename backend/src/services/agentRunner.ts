@@ -1,14 +1,41 @@
 import { spawn } from 'child_process';
 import { logger } from '../utils/logger';
 
+interface AgentResponse {
+  runId?: string;
+  status?: string;
+  summary?: string;
+  result?: {
+    payloads?: Array<{
+      text?: string;
+      mediaUrl?: string | null;
+    }>;
+    meta?: {
+      durationMs?: number;
+      agentMeta?: {
+        sessionId?: string;
+        provider?: string;
+        model?: string;
+        usage?: {
+          input?: number;
+          output?: number;
+          cacheRead?: number;
+          total?: number;
+        };
+      };
+      aborted?: boolean;
+    };
+  };
+  error?: string;
+}
+
 /**
  * Send a message to an agent using OpenClaw CLI via SSH
- * This is a fallback when Gateway WebSocket doesn't have write permissions
+ * Returns the agent's response
  */
-export function sendMessageToAgent(agentName: string, content: string): Promise<void> {
+export function sendMessageToAgent(agentName: string, content: string): Promise<string> {
   return new Promise((resolve, reject) => {
     // Map agent IDs to agent names in OpenClaw
-    // ClawPanel agents are named clawpanel-{id} in OpenClaw
     const agentId = String(agentName);
     const fullAgentName = agentId.startsWith('clawpanel-') 
       ? agentId 
@@ -25,13 +52,14 @@ export function sendMessageToAgent(agentName: string, content: string): Promise<
     // Escape the content for shell safety
     const escapedContent = content.replace(/"/g, '\\"');
     
+    // Use --message flag which returns the response
     const proc = spawn('ssh', [
       '-i', sshKeyPath,
       '-o', 'StrictHostKeyChecking=no',
       '-o', 'UserKnownHostsFile=/dev/null',
       '-p', sshPort,
       `${sshUser}@${sshHost}`,
-      `OPENCLAW_CONFIG_PATH=/root/.openclaw/openclaw.json openclaw agent --agent ${fullAgentName} --message "${escapedContent}"`
+      `OPENCLAW_CONFIG_PATH=/root/.openclaw/openclaw.json openclaw agent --agent ${fullAgentName} --message "${escapedContent}" --json`
     ]);
     
     let stdout = '';
@@ -49,7 +77,22 @@ export function sendMessageToAgent(agentName: string, content: string): Promise<
     proc.on('close', (code) => {
       if (code === 0) {
         logger.info(`Message sent to agent ${fullAgentName} successfully`);
-        resolve();
+        logger.debug(`OpenClaw stdout: ${stdout}`);
+        
+        // Parse the JSON response
+        try {
+          const response: AgentResponse = JSON.parse(stdout);
+          // Extract the response text from OpenClaw JSON format
+          // Format: { result: { payloads: [{ text: "..." }] } }
+          let responseText = '';
+          if (response.result?.payloads && response.result.payloads.length > 0) {
+            responseText = response.result.payloads[0].text || '';
+          }
+          resolve(responseText);
+        } catch (e) {
+          // If not JSON, return raw stdout
+          resolve(stdout.trim());
+        }
       } else {
         logger.error(`OpenClaw SSH exited with code ${code}: ${stderr}`);
         reject(new Error(`Failed to send message: ${stderr || `Exit code ${code}`}`));
