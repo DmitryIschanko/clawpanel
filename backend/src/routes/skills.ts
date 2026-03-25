@@ -544,4 +544,71 @@ router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'skill
   });
 }));
 
+// Get SKILL.md content from filesystem
+router.get('/:id/content', authenticateToken, asyncHandler(async (req, res) => {
+  const db = getDatabase();
+  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(req.params.id);
+  
+  if (!skill) {
+    throw new NotFoundError('Skill not found');
+  }
+  
+  // Try to read from filesystem first
+  const skillsDir = getOpenClawSkillsDir();
+  if (skillsDir) {
+    const skillMdPath = path.join(skillsDir, skill.name, 'SKILL.md');
+    if (fs.existsSync(skillMdPath)) {
+      const content = fs.readFileSync(skillMdPath, 'utf8');
+      return res.json({
+        success: true,
+        data: { content, source: 'filesystem' },
+      });
+    }
+  }
+  
+  // Fallback to database content
+  res.json({
+    success: true,
+    data: { content: skill.content || '', source: 'database' },
+  });
+}));
+
+// Update SKILL.md content
+router.put('/:id/content', authenticateToken, requireAdmin, auditLog('update', 'skill-content'), asyncHandler(async (req, res) => {
+  const db = getDatabase();
+  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(req.params.id);
+  
+  if (!skill) {
+    throw new NotFoundError('Skill not found');
+  }
+  
+  const { content } = req.body;
+  if (content === undefined) {
+    throw new ValidationError('Content is required');
+  }
+  
+  // Update in filesystem
+  const skillsDir = getOpenClawSkillsDir();
+  let fsUpdated = false;
+  if (skillsDir) {
+    const skillDir = path.join(skillsDir, skill.name);
+    const skillMdPath = path.join(skillDir, 'SKILL.md');
+    
+    if (fs.existsSync(skillDir)) {
+      fs.writeFileSync(skillMdPath, content, 'utf8');
+      fsUpdated = true;
+      logger.info(`Updated SKILL.md for skill ${skill.name}`);
+    }
+  }
+  
+  // Also update in database
+  db.prepare('UPDATE skills SET content = ? WHERE id = ?').run(content, req.params.id);
+  
+  res.json({
+    success: true,
+    data: { fsUpdated },
+    message: fsUpdated ? 'SKILL.md updated in filesystem and database' : 'SKILL.md updated in database',
+  });
+}));
+
 export default router;

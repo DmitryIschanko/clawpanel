@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from 'react-query'
-import { Plus, Puzzle, Upload, Trash2, AlertTriangle, Loader2, Search, ExternalLink, CheckCircle2, XCircle, RefreshCw } from 'lucide-react'
+import { Plus, Puzzle, Upload, Trash2, AlertTriangle, Loader2, Search, ExternalLink, CheckCircle2, XCircle, RefreshCw, Edit, Save } from 'lucide-react'
+import Editor from '@monaco-editor/react'
 import { skillsApi } from '../services/api'
 import type { Skill } from '../types'
 
@@ -16,6 +17,10 @@ export function SkillsPage() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
   const [isClawHubModalOpen, setIsClawHubModalOpen] = useState(false)
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null)
+  const [skillContent, setSkillContent] = useState('')
+  const [isSavingContent, setIsSavingContent] = useState(false)
   const [newSkillName, setNewSkillName] = useState('')
   const [newSkillContent, setNewSkillContent] = useState('')
   const [clawHubSkillName, setClawHubSkillName] = useState('')
@@ -101,6 +106,34 @@ export function SkillsPage() {
     refetch()
   }
 
+  const handleEditSkill = async (skill: Skill) => {
+    setEditingSkill(skill)
+    setIsEditModalOpen(true)
+    try {
+      const response = await skillsApi.getContent(skill.id)
+      setSkillContent(response.data.data.content)
+    } catch (error) {
+      console.error('Failed to load skill content:', error)
+      setSkillContent(skill.content || '')
+    }
+  }
+
+  const handleSaveSkillContent = async () => {
+    if (!editingSkill) return
+    setIsSavingContent(true)
+    try {
+      await skillsApi.updateContent(editingSkill.id, skillContent)
+      setIsEditModalOpen(false)
+      setEditingSkill(null)
+      refetch()
+    } catch (error) {
+      console.error('Failed to save skill content:', error)
+      alert('Failed to save changes')
+    } finally {
+      setIsSavingContent(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {installStatus.show && (
@@ -180,12 +213,22 @@ export function SkillsPage() {
                     <p className="text-xs text-muted-foreground capitalize">{skill.source}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDelete(skill.id)}
-                  className="p-1 rounded hover:bg-muted text-destructive"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => handleEditSkill(skill)}
+                    className="p-1 rounded hover:bg-muted text-primary"
+                    title="Edit SKILL.md"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(skill.id)}
+                    className="p-1 rounded hover:bg-muted text-destructive"
+                    title="Delete skill"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               
               <p className="text-sm text-muted-foreground mt-3">{skill.description || 'No description'}</p>
@@ -385,6 +428,52 @@ export function SkillsPage() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isEditModalOpen && editingSkill && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-xl w-full max-w-4xl h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <div>
+                <h2 className="text-lg font-semibold">Edit SKILL.md</h2>
+                <p className="text-sm text-muted-foreground">{editingSkill.name}</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveSkillContent}
+                  disabled={isSavingContent}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {isSavingContent && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <Save className="w-4 h-4" />
+                  Save
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <Editor
+                height="100%"
+                defaultLanguage="markdown"
+                value={skillContent}
+                onChange={(value) => setSkillContent(value || '')}
+                theme="vs-dark"
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 14,
+                  lineNumbers: 'on',
+                  wordWrap: 'on',
+                  automaticLayout: true,
+                }}
+              />
             </div>
           </div>
         </div>

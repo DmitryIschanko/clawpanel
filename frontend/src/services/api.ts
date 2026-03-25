@@ -121,6 +121,8 @@ export const skillsApi = {
     api.post('/skills/upload', { name, content }),
   update: (id: number, data: Partial<Skill>) => api.put(`/skills/${id}`, data),
   delete: (id: number) => api.delete(`/skills/${id}`),
+  getContent: (id: number) => api.get(`/skills/${id}/content`),
+  updateContent: (id: number, content: string) => api.put(`/skills/${id}/content`, { content }),
 }
 
 // Chains API
