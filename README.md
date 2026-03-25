@@ -348,6 +348,7 @@ clawpanel/
 ├── README.md                   # Документация
 ├── AGENTS.md                   # Документация для AI агентов
 ├── CHANGELOG.md               # История изменений
+├── CONTRIBUTING.md            # Руководство для контрибьюторов
 ├── nginx/
 │   └── nginx.conf              # Nginx конфигурация
 ├── backend/                    # Node.js API
@@ -542,6 +543,27 @@ echo "GATEWAY_TOKEN=$TOKEN" >> /path/to/clawpanel/.env
 sudo systemctl restart openclaw-gateway
 docker compose restart backend
 ```
+
+### Чат: агенты не отвечают
+
+**Проверки:**
+```bash
+# 1. Проверить, что агенты зарегистрированы в OpenClaw
+openclaw agents list
+
+# 2. Если их нет - зарегистрировать
+openclaw agents add clawpanel-1 --model kimi/kimi-k2.5 --workspace ~/.openclaw/agents/clawpanel-1
+openclaw agents add clawpanel-8 --model kimi/kimi-k2 --workspace ~/.openclaw/agents/clawpanel-8
+
+# 3. Перезапустить Gateway
+sudo systemctl restart openclaw-gateway
+```
+
+### Чат: сообщения идут обоим агентам
+
+Это происходит, если frontend создаёт несколько WebSocket соединений. Убедитесь, что:
+- Используется актуальная версия frontend (после коммита `fix: chat WebSocket`)
+- При переключении агента старое соединение закрывается
 
 ### Терминал не подключается
 
