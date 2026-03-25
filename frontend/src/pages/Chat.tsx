@@ -51,10 +51,11 @@ export function ChatPage() {
     }
 
     ws.onmessage = (event) => {
+      console.log('WebSocket message received:', event.data)
       const data = JSON.parse(event.data)
       
       if (data.type === 'history') {
-        // Load chat history from server
+        console.log('Loading history:', data.payload.messages)
         const historyMessages = data.payload.messages.map((msg: any) => ({
           id: msg.id,
           role: msg.role,
@@ -63,6 +64,7 @@ export function ChatPage() {
         }))
         setMessages(historyMessages)
       } else if (data.type === 'message') {
+        console.log('Adding message:', data.payload)
         setMessages((prev) => [
           ...prev,
           {
@@ -72,6 +74,10 @@ export function ChatPage() {
             timestamp: Date.now(),
           },
         ])
+      } else if (data.type === 'connected') {
+        console.log('Connected to chat:', data.payload)
+      } else if (data.type === 'error') {
+        console.error('Chat error:', data.payload)
       }
     }
 

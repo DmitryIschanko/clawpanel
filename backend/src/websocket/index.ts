@@ -72,6 +72,8 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
 }
 
 function handleChatConnection(client: Client, url: URL): void {
+  logger.info(`handleChatConnection called: ${url.toString()}`);
+  
   // Extract agent ID from URL
   const agentIdParam = url.searchParams.get('agent');
   
@@ -225,13 +227,18 @@ function handleMessage(client: Client, message: string): void {
             }
             
             // Send response to client
-            client.ws.send(JSON.stringify({
-              type: 'message',
-              payload: {
-                role: 'assistant',
-                content: response,
-              },
-            }));
+            if (client.ws.readyState === WebSocket.OPEN) {
+              client.ws.send(JSON.stringify({
+                type: 'message',
+                payload: {
+                  role: 'assistant',
+                  content: response,
+                },
+              }));
+              logger.info(`Sent response to client for agent ${agentId}`);
+            } else {
+              logger.warn(`Cannot send response: WebSocket not open (state: ${client.ws.readyState})`);
+            }
           }
         }).catch((error) => {
           logger.error('Failed to send message via CLI:', error);
