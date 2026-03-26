@@ -13,6 +13,7 @@ import routes from './routes';
 import { gatewayService } from './services/gateway';
 import { setupWebSocketServer } from './websocket';
 import { runMigrations } from './database/migrate';
+import { setupSwagger } from './swagger';
 
 async function main() {
   // Run database migrations first
@@ -50,6 +51,9 @@ async function main() {
   
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
+  
+  // Swagger documentation
+  setupSwagger(app);
   
   // API routes
   app.use('/api', routes);

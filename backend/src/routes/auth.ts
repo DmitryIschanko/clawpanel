@@ -6,7 +6,63 @@ import { ValidationError } from '../utils/errors';
 
 const router = Router();
 
-// Login
+/**
+ * @swagger
+ * /auth/login:
+ *   post:
+ *     summary: User login
+ *     description: Authenticate user and receive access/refresh tokens
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - username
+ *               - password
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 example: admin
+ *               password:
+ *                 type: string
+ *                 example: admin
+ *               totpCode:
+ *                 type: string
+ *                 description: 2FA code if enabled
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     accessToken:
+ *                       type: string
+ *                     refreshToken:
+ *                       type: string
+ *                     user:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: integer
+ *                         username:
+ *                           type: string
+ *                         role:
+ *                           type: string
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Invalid credentials
+ */
 router.post('/login', asyncHandler(async (req, res) => {
   const { username, password, totpCode } = req.body;
   
