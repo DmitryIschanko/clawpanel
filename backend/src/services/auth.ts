@@ -24,8 +24,14 @@ export interface Tokens {
   refreshToken: string;
 }
 
+export interface UserInfo {
+  id: number;
+  username: string;
+  role: string;
+}
+
 export class AuthService {
-  async login(input: LoginInput): Promise<Tokens & { requires2FA: boolean }> {
+  async login(input: LoginInput): Promise<Tokens & { requires2FA: boolean; user?: UserInfo }> {
     const db = getDatabase();
     
     const user = db.prepare('SELECT * FROM users WHERE username = ?').get(input.username) as any;
@@ -79,7 +85,15 @@ export class AuthService {
     // Generate tokens
     const tokens = await this.generateTokens(user);
     
-    return { ...tokens, requires2FA: false };
+    return { 
+      ...tokens, 
+      requires2FA: false,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+      }
+    };
   }
   
   async generateTokens(user: any): Promise<Tokens> {

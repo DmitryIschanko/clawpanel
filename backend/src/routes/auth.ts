@@ -2,12 +2,21 @@ import { Router } from 'express';
 import { authService } from '../services/auth';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
+import { ValidationError } from '../utils/errors';
 
 const router = Router();
 
 // Login
 router.post('/login', asyncHandler(async (req, res) => {
   const { username, password, totpCode } = req.body;
+  
+  // Validation
+  if (!username || typeof username !== 'string') {
+    throw new ValidationError('Username is required');
+  }
+  if (!password || typeof password !== 'string') {
+    throw new ValidationError('Password is required');
+  }
   
   const result = await authService.login({ username, password, totpCode });
   
@@ -20,6 +29,11 @@ router.post('/login', asyncHandler(async (req, res) => {
 // Refresh token
 router.post('/refresh', asyncHandler(async (req, res) => {
   const { refreshToken } = req.body;
+  
+  // Validation
+  if (!refreshToken || typeof refreshToken !== 'string') {
+    throw new ValidationError('Refresh token is required');
+  }
   
   const tokens = await authService.refreshToken(refreshToken);
   

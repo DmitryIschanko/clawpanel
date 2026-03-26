@@ -10,7 +10,7 @@ app.use(errorHandler);
 
 describe('Auth API', () => {
   describe('POST /api/auth/login', () => {
-    it('should login with valid credentials', async () => {
+    it('should login with valid credentials and return user data', async () => {
       const res = await request(app)
         .post('/api/auth/login')
         .send({ username: 'admin', password: 'admin' });
@@ -19,6 +19,9 @@ describe('Auth API', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('accessToken');
       expect(res.body.data).toHaveProperty('refreshToken');
+      expect(res.body.data).toHaveProperty('user');
+      expect(res.body.data.user).toHaveProperty('username');
+      expect(res.body.data.user.username).toBe('admin');
     });
 
     it('should reject invalid credentials', async () => {
@@ -31,22 +34,24 @@ describe('Auth API', () => {
       expect(res.body.error.code).toBe('UNAUTHORIZED');
     });
 
-    it('should reject missing username', async () => {
+    it('should reject missing username with 400', async () => {
       const res = await request(app)
         .post('/api/auth/login')
         .send({ password: 'admin' });
 
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toMatch(/username|required/i);
     });
 
-    it('should reject missing password', async () => {
+    it('should reject missing password with 400', async () => {
       const res = await request(app)
         .post('/api/auth/login')
         .send({ username: 'admin' });
 
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toMatch(/password|required/i);
     });
 
     it('should reject non-existent user', async () => {
@@ -86,13 +91,14 @@ describe('Auth API', () => {
       expect(res.body.success).toBe(false);
     });
 
-    it('should reject missing refresh token', async () => {
+    it('should reject missing refresh token with 400', async () => {
       const res = await request(app)
         .post('/api/auth/refresh')
         .send({});
 
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toMatch(/refresh.*token|required/i);
     });
   });
 

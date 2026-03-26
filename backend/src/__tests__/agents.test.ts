@@ -51,7 +51,7 @@ describe('Agents API', () => {
   });
 
   describe('POST /api/agents', () => {
-    it('should create a new agent', async () => {
+    it('should create a new agent and return complete data', async () => {
       const res = await request(app)
         .post('/api/agents')
         .set('Authorization', `Bearer ${authToken}`)
@@ -66,7 +66,10 @@ describe('Agents API', () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('id');
-      expect(res.body.data).toHaveProperty('memoryCreated');
+      expect(res.body.data).toHaveProperty('name');
+      expect(res.body.data.name).toBe('Test Agent');
+      expect(res.body.data).toHaveProperty('role');
+      expect(res.body.data.role).toBe('tester');
     });
 
     it('should reject missing name', async () => {
@@ -79,7 +82,7 @@ describe('Agents API', () => {
       expect(res.body.success).toBe(false);
     });
 
-    it('should create agent with minimal data', async () => {
+    it('should create agent with minimal data and return complete data', async () => {
       const res = await request(app)
         .post('/api/agents')
         .set('Authorization', `Bearer ${authToken}`)
@@ -88,6 +91,8 @@ describe('Agents API', () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('id');
+      expect(res.body.data).toHaveProperty('name');
+      expect(res.body.data.name).toBe('Minimal Agent');
     });
   });
 

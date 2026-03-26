@@ -359,10 +359,31 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'agent'), a
     logger.error(`Error registering agent in OpenClaw: ${error}`);
   }
   
+  // Get the created agent to return complete data
+  const createdAgent = db.prepare('SELECT * FROM agents WHERE id = ?').get(result.lastInsertRowid) as Agent;
+  
   res.status(201).json({
     success: true,
     data: { 
-      id: result.lastInsertRowid,
+      id: createdAgent.id,
+      name: createdAgent.name,
+      avatar: createdAgent.avatar,
+      role: createdAgent.role,
+      description: createdAgent.description,
+      color: createdAgent.color,
+      model: createdAgent.model,
+      fallbackModel: createdAgent.fallback_model,
+      temperature: createdAgent.temperature,
+      maxTokens: createdAgent.max_tokens,
+      thinkingLevel: createdAgent.thinking_level,
+      sandboxMode: createdAgent.sandbox_mode === 1,
+      systemPrompt: createdAgent.system_prompt,
+      status: createdAgent.status,
+      skills: createdAgent.skills ? JSON.parse(createdAgent.skills) : [],
+      tools: createdAgent.tools ? JSON.parse(createdAgent.tools) : [],
+      delegateTo: createdAgent.delegate_to ? JSON.parse(createdAgent.delegate_to) : [],
+      createdAt: createdAgent.created_at,
+      updatedAt: createdAgent.updated_at,
       memoryCreated: memoryResult.created,
       memoryPath: memoryResult.path,
       openclawRegistered,
