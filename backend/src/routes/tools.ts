@@ -6,6 +6,18 @@ import { NotFoundError, ValidationError } from '../utils/errors';
 import { auditLog } from '../middleware/audit';
 import { logger } from '../utils/logger';
 
+interface Tool {
+  id: number;
+  name: string;
+  type: string;
+  config?: string;
+  enabled: number;
+  agent_id?: number;
+  mcp_server_id?: number;
+  created_at: number;
+  updated_at: number;
+}
+
 const router = Router();
 
 // List tools
@@ -36,7 +48,7 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
 // Get single tool
 router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const tool = db.prepare('SELECT * FROM tools WHERE id = ?').get(req.params.id);
+  const tool = db.prepare('SELECT * FROM tools WHERE id = ?').get(req.params.id) as Tool | undefined;
   
   if (!tool) {
     throw new NotFoundError('Tool not found');
@@ -71,7 +83,7 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'tool'), as
   const db = getDatabase();
   
   // Check for duplicate name
-  const existing = db.prepare('SELECT id FROM tools WHERE name = ?').get(name);
+  const existing = db.prepare('SELECT id FROM tools WHERE name = ?').get(name) as { id: number } | undefined;
   if (existing) {
     throw new ValidationError('Tool with this name already exists');
   }
