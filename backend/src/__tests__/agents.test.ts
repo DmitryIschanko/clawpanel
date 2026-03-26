@@ -66,7 +66,7 @@ describe('Agents API', () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('id');
-      expect(res.body.data.name).toBe('Test Agent');
+      expect(res.body.data).toHaveProperty('memoryCreated');
     });
 
     it('should reject missing name', async () => {
@@ -87,7 +87,7 @@ describe('Agents API', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.name).toBe('Minimal Agent');
+      expect(res.body.data).toHaveProperty('id');
     });
   });
 

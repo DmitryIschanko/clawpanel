@@ -1,5 +1,4 @@
 import { getDatabase, closeDatabase } from '../database';
-import bcrypt from 'bcryptjs';
 
 // Test database path
 process.env.SQLITE_PATH = ':memory:';
@@ -50,6 +49,8 @@ beforeAll(async () => {
       max_tokens INTEGER DEFAULT 4096,
       thinking_level TEXT DEFAULT 'medium',
       sandbox_mode INTEGER DEFAULT 0,
+      system_prompt TEXT,
+      status TEXT DEFAULT 'active',
       skills TEXT,
       tools TEXT,
       delegate_to TEXT,
@@ -94,9 +95,9 @@ beforeAll(async () => {
       models TEXT
     );
     
-    -- Insert default admin user
+    -- Insert default admin user (password: 'admin')
     INSERT INTO users (id, username, password_hash, role) 
-    VALUES (1, 'admin', '${bcrypt.hashSync('admin', 10)}', 'admin');
+    VALUES (1, 'admin', '$2a$10$WYbl8LoS/CWWch8Pxv7pg.jaJ8cWS4mu7PC2TUtRHzXa5vXH0GSAy', 'admin');
     
     -- Insert default providers
     INSERT INTO llm_providers (id, name, key, api_key_env, models) VALUES
