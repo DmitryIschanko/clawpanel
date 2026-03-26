@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from 'react-query'
 import { Plus, Workflow, Play, Trash2, Edit, Loader2, Save, X } from 'lucide-react'
-import { chainsApi } from '../services/api'
-import type { Chain, ChainNode, ChainEdge } from '../types'
+import { chainsApi, agentsApi } from '../services/api'
+import type { Chain, ChainNode, ChainEdge, Agent } from '../types'
 
 export function ChainsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -163,6 +163,15 @@ function ChainModal({
     enabled: chain?.enabled ?? true,
   })
   const [newStep, setNewStep] = useState({ agentId: '', instruction: '' })
+  
+  // Load agents for dropdown
+  const { data: agents, isLoading: agentsLoading } = useQuery<Agent[]>(
+    'agents-list',
+    async () => {
+      const response = await agentsApi.list()
+      return response.data.data
+    }
+  )
 
   const addStep = () => {
     if (!newStep.agentId) return
@@ -226,30 +235,39 @@ function ChainModal({
           <div>
             <label className="block text-sm font-medium mb-2">Steps</label>
             <div className="space-y-2 mb-4">
-              {formData.nodes?.map((node: any, index: number) => (
-                <div key={node.id} className="flex items-center justify-between p-3 rounded-lg bg-muted">
-                  <div>
-                    <span className="font-medium">Step {index + 1}:</span>
-                    <span className="ml-2">Agent {node.data?.agentId}</span>
-                    {node.data?.instruction && (
-                      <p className="text-sm text-muted-foreground">{node.data.instruction}</p>
-                    )}
+              {formData.nodes?.map((node: any, index: number) => {
+                const agent = agents?.find(a => a.id === node.data?.agentId)
+                return (
+                  <div key={node.id} className="flex items-center justify-between p-3 rounded-lg bg-muted">
+                    <div>
+                      <span className="font-medium">Step {index + 1}:</span>
+                      <span className="ml-2 text-primary">{agent?.name || `Agent ${node.data?.agentId}`}</span>
+                      {node.data?.instruction && (
+                        <p className="text-sm text-muted-foreground">{node.data.instruction}</p>
+                      )}
+                    </div>
+                    <button onClick={() => removeStep(index)} className="p-1 rounded hover:bg-muted text-destructive">
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
-                  <button onClick={() => removeStep(index)} className="p-1 rounded hover:bg-muted text-destructive">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+                )
+              })}
             </div>
             
             <div className="flex gap-2">
-              <input
-                type="number"
-                placeholder="Agent ID"
+              <select
                 value={newStep.agentId}
                 onChange={(e) => setNewStep({ ...newStep, agentId: e.target.value })}
-                className="w-24 px-3 py-2 rounded-lg bg-secondary border border-border"
-              />
+                className="w-48 px-3 py-2 rounded-lg bg-secondary border border-border"
+                disabled={agentsLoading}
+              >
+                <option value="">{agentsLoading ? 'Loading...' : 'Select Agent'}</option>
+                {agents?.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name} (ID: {agent.id})
+                  </option>
+                ))}
+              </select>
               <input
                 type="text"
                 placeholder="Instruction (optional)"
@@ -257,7 +275,11 @@ function ChainModal({
                 onChange={(e) => setNewStep({ ...newStep, instruction: e.target.value })}
                 className="flex-1 px-3 py-2 rounded-lg bg-secondary border border-border"
               />
-              <button onClick={addStep} className="px-3 py-2 rounded-lg bg-secondary hover:bg-secondary/80">
+              <button 
+                onClick={addStep} 
+                disabled={!newStep.agentId}
+                className="px-3 py-2 rounded-lg bg-secondary hover:bg-secondary/80 disabled:opacity-50"
+              >
                 Add
               </button>
             </div>
