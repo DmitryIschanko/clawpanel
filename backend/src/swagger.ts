@@ -19,6 +19,24 @@ const options: swaggerJsdoc.Options = {
         description: 'API server',
       },
     ],
+    tags: [
+      {
+        name: 'Authentication',
+        description: 'User login, logout, token refresh',
+      },
+      {
+        name: 'Agents',
+        description: 'Agent management (CRUD operations)',
+      },
+      {
+        name: 'MCP Servers',
+        description: 'MCP server integration and tool sync',
+      },
+      {
+        name: 'Tools',
+        description: 'Tool management and assignment to agents',
+      },
+    ],
     components: {
       securitySchemes: {
         bearerAuth: {

@@ -190,7 +190,54 @@ function deleteAgentMemory(agentId: string): boolean {
   }
 }
 
-// List agents
+/**
+ * @swagger
+ * /agents:
+ *   get:
+ *     summary: List all agents
+ *     description: Get list of all agents with optional filtering
+ *     tags: [Agents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by name or description
+ *       - in: query
+ *         name: role
+ *         schema:
+ *           type: string
+ *         description: Filter by role
+ *     responses:
+ *       200:
+ *         description: List of agents
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *                       role:
+ *                         type: string
+ *                       model:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const { search, role } = req.query;
@@ -242,7 +289,60 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Get single agent
+/**
+ * @swagger
+ * /agents/{id}:
+ *   get:
+ *     summary: Get agent by ID
+ *     description: Get detailed information about a specific agent
+ *     tags: [Agents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Agent ID
+ *     responses:
+ *       200:
+ *         description: Agent details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     name:
+ *                       type: string
+ *                     avatar:
+ *                       type: string
+ *                     role:
+ *                       type: string
+ *                     description:
+ *                       type: string
+ *                     color:
+ *                       type: string
+ *                     model:
+ *                       type: string
+ *                     temperature:
+ *                       type: number
+ *                     maxTokens:
+ *                       type: integer
+ *                     status:
+ *                       type: string
+ *       404:
+ *         description: Agent not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Agent | undefined;
@@ -277,7 +377,59 @@ router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Create agent
+/**
+ * @swagger
+ * /agents:
+ *   post:
+ *     summary: Create new agent
+ *     description: Create a new agent with specified configuration
+ *     tags: [Agents]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 description: Agent name
+ *               role:
+ *                 type: string
+ *                 description: Agent role
+ *               description:
+ *                 type: string
+ *               model:
+ *                 type: string
+ *                 description: LLM model (e.g., gpt-4o)
+ *               temperature:
+ *                 type: number
+ *                 minimum: 0
+ *                 maximum: 2
+ *               maxTokens:
+ *                 type: integer
+ *               skills:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *               tools:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *     responses:
+ *       201:
+ *         description: Agent created successfully
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.post('/', authenticateToken, requireAdmin, auditLog('create', 'agent'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const b = req.body;
@@ -391,7 +543,52 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'agent'), a
   });
 }));
 
-// Update agent
+/**
+ * @swagger
+ * /agents/{id}:
+ *   put:
+ *     summary: Update agent
+ *     description: Update agent configuration
+ *     tags: [Agents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Agent ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *               model:
+ *                 type: string
+ *               temperature:
+ *                 type: number
+ *               maxTokens:
+ *                 type: integer
+ *               status:
+ *                 type: string
+ *                 enum: [active, inactive]
+ *     responses:
+ *       200:
+ *         description: Agent updated successfully
+ *       404:
+ *         description: Agent not found
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'agent'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const agent = db.prepare('SELECT id FROM agents WHERE id = ?').get(req.params.id) as { id: number } | undefined;
@@ -446,7 +643,32 @@ router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'agent'),
   });
 }));
 
-// Delete agent
+/**
+ * @swagger
+ * /agents/{id}:
+ *   delete:
+ *     summary: Delete agent
+ *     description: Delete agent and associated memory
+ *     tags: [Agents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Agent ID
+ *     responses:
+ *       200:
+ *         description: Agent deleted successfully
+ *       404:
+ *         description: Agent not found
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'agent'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const result = db.prepare('DELETE FROM agents WHERE id = ?').run(req.params.id);

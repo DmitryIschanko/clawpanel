@@ -23,7 +23,43 @@ interface McpServer {
 
 const router = Router();
 
-// List MCP servers
+/**
+ * @swagger
+ * /mcp:
+ *   get:
+ *     summary: List all MCP servers
+ *     description: Get list of all configured MCP servers
+ *     tags: [MCP Servers]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of MCP servers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *                       url:
+ *                         type: string
+ *                       authType:
+ *                         type: string
+ *                       enabled:
+ *                         type: boolean
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const servers = db.prepare('SELECT * FROM mcp_servers ORDER BY created_at DESC').all();
@@ -41,7 +77,30 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Get single MCP server
+/**
+ * @swagger
+ * /mcp/{id}:
+ *   get:
+ *     summary: Get MCP server by ID
+ *     description: Get detailed information about a specific MCP server
+ *     tags: [MCP Servers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: MCP Server ID
+ *     responses:
+ *       200:
+ *         description: MCP server details
+ *       404:
+ *         description: MCP server not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const server = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(req.params.id) as McpServer | undefined;
@@ -103,7 +162,54 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'mcp'), asy
   });
 }));
 
-// Import MCP server from JSON (e.g., from pulsemcp.com)
+/**
+ * @swagger
+ * /mcp/import-json:
+ *   post:
+ *     summary: Import MCP server from JSON
+ *     description: Import MCP server configuration from JSON (e.g., from pulsemcp.com)
+ *     tags: [MCP Servers]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - configJson
+ *             properties:
+ *               configJson:
+ *                 type: string
+ *                 description: JSON configuration string
+ *                 example: '{"name":"My MCP","url":"https://api.example.com/mcp","tools":[{"name":"search","description":"Search tool"}]}'
+ *     responses:
+ *       201:
+ *         description: MCP server imported successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     name:
+ *                       type: string
+ *                     toolsImported:
+ *                       type: integer
+ *       400:
+ *         description: Invalid JSON or missing URL
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.post('/import-json', authenticateToken, requireAdmin, auditLog('create', 'mcp'), asyncHandler(async (req, res) => {
   const { configJson } = req.body;
   
@@ -253,7 +359,32 @@ router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'mcp'), a
   });
 }));
 
-// Delete MCP server
+/**
+ * @swagger
+ * /mcp/{id}:
+ *   delete:
+ *     summary: Delete MCP server
+ *     description: Delete MCP server and associated tools
+ *     tags: [MCP Servers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: MCP Server ID
+ *     responses:
+ *       200:
+ *         description: MCP server deleted successfully
+ *       404:
+ *         description: MCP server not found
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'mcp'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const result = db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(req.params.id);
@@ -268,7 +399,44 @@ router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'mcp')
   });
 }));
 
-// Test MCP server connection
+/**
+ * @swagger
+ * /mcp/{id}/test:
+ *   post:
+ *     summary: Test MCP server connection
+ *     description: Test connectivity to MCP server endpoint
+ *     tags: [MCP Servers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: MCP Server ID
+ *     responses:
+ *       200:
+ *         description: Test result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     reachable:
+ *                       type: boolean
+ *                     error:
+ *                       type: string
+ *       404:
+ *         description: MCP server not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/:id/test', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const server = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(req.params.id) as McpServer | undefined;

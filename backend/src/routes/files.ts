@@ -146,7 +146,29 @@ router.get('/tree', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Get directory listing (for lazy loading)
+/**
+ * @swagger
+ * /files/list:
+ *   get:
+ *     summary: List directory contents
+ *     description: Get files and directories at specified path
+ *     tags: [Files]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: path
+ *         schema:
+ *           type: string
+ *         description: Directory path (relative to workspace)
+ *     responses:
+ *       200:
+ *         description: Directory listing
+ *       403:
+ *         description: Access to directory restricted
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/list', authenticateToken, asyncHandler(async (req, res) => {
   const { path: relativePath = '' } = req.query as { path?: string };
   const fullPath = resolvePath(relativePath);

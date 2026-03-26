@@ -20,7 +20,46 @@ interface Tool {
 
 const router = Router();
 
-// List tools
+/**
+ * @swagger
+ * /tools:
+ *   get:
+ *     summary: List all tools
+ *     description: Get list of all tools (built-in and MCP)
+ *     tags: [Tools]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of tools
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *                       type:
+ *                         type: string
+ *                         enum: [browser, cron, webhook, mcp]
+ *                       enabled:
+ *                         type: boolean
+ *                       agentId:
+ *                         type: integer
+ *                       mcpServerName:
+ *                         type: string
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const tools = db.prepare(`
@@ -45,7 +84,30 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Get single tool
+/**
+ * @swagger
+ * /tools/{id}:
+ *   get:
+ *     summary: Get tool by ID
+ *     description: Get detailed information about a specific tool
+ *     tags: [Tools]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Tool ID
+ *     responses:
+ *       200:
+ *         description: Tool details
+ *       404:
+ *         description: Tool not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const tool = db.prepare('SELECT * FROM tools WHERE id = ?').get(req.params.id) as Tool | undefined;
@@ -104,7 +166,48 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'tool'), as
   });
 }));
 
-// Update tool
+/**
+ * @swagger
+ * /tools/{id}:
+ *   put:
+ *     summary: Update tool
+ *     description: Update tool configuration or assign to agent
+ *     tags: [Tools]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Tool ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               enabled:
+ *                 type: boolean
+ *                 description: Enable/disable tool
+ *               agentId:
+ *                 type: integer
+ *                 description: Assign tool to agent (null to unassign)
+ *               config:
+ *                 type: object
+ *                 description: Tool configuration
+ *     responses:
+ *       200:
+ *         description: Tool updated successfully
+ *       404:
+ *         description: Tool not found
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'tool'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const tool = db.prepare('SELECT id FROM tools WHERE id = ?').get(req.params.id);
