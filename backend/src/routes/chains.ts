@@ -4,6 +4,7 @@ import { authenticateToken, requireAdmin } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { auditLog } from '../middleware/audit';
+import type { Chain, ChainRun } from '../types/database';
 
 const router = Router();
 
@@ -55,7 +56,7 @@ const router = Router();
  */
 router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const chains = db.prepare('SELECT * FROM chains ORDER BY created_at DESC').all();
+  const chains = db.prepare('SELECT * FROM chains ORDER BY created_at DESC').all() as Chain[];
   
   res.json({
     success: true,
@@ -116,7 +117,7 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
  */
 router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const chain = db.prepare('SELECT * FROM chains WHERE id = ?').get(req.params.id);
+  const chain = db.prepare('SELECT * FROM chains WHERE id = ?').get(req.params.id) as Chain | undefined;
   
   if (!chain) {
     throw new NotFoundError('Chain not found');
@@ -124,7 +125,7 @@ router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   
   // Get run history
   const runs = db.prepare('SELECT * FROM chain_runs WHERE chain_id = ? ORDER BY started_at DESC LIMIT 20')
-    .all(req.params.id);
+    .all(req.params.id) as ChainRun[];
   
   res.json({
     success: true,

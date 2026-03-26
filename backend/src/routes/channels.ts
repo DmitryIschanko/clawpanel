@@ -10,6 +10,12 @@ import {
   restartGateway 
 } from '../services/hostExecutor';
 import { logger } from '../utils/logger';
+import type { Channel } from '../types/database';
+
+// Extended channel type with joined agent name
+interface ChannelWithAgent extends Channel {
+  agent_name?: string;
+}
 
 const router = Router();
 
@@ -20,7 +26,7 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
     FROM channels c
     LEFT JOIN agents a ON c.agent_id = a.id
     ORDER BY c.created_at DESC
-  `).all();
+  `).all() as ChannelWithAgent[];
   
   res.json({
     success: true,
@@ -39,7 +45,7 @@ router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
     FROM channels c
     LEFT JOIN agents a ON c.agent_id = a.id
     WHERE c.id = ?
-  `).get(req.params.id);
+  `).get(req.params.id) as ChannelWithAgent | undefined;
   
   if (!channel) throw new NotFoundError('Channel not found');
   
@@ -114,7 +120,7 @@ router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'channel'
 
 router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'channel'), asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
+  const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id) as Channel | undefined;
   if (!channel) throw new NotFoundError('Channel not found');
   
   if (channel.type === 'telegram') {
@@ -127,7 +133,7 @@ router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'chann
 
 router.post('/:id/test', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
+  const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id) as Channel | undefined;
   if (!channel) throw new NotFoundError('Channel not found');
   
   res.json({

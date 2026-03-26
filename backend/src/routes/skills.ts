@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
+import type { Skill } from '../types/database';
 
 const router = Router();
 
@@ -346,7 +347,7 @@ async function searchClawHub(query: string): Promise<any[]> {
  */
 router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const skills = db.prepare('SELECT * FROM skills ORDER BY created_at DESC').all();
+  const skills = db.prepare('SELECT * FROM skills ORDER BY created_at DESC').all() as Skill[];
   
   // Check OpenClaw installation status for each skill
   const skillsWithStatus = skills.map(s => {
@@ -471,7 +472,7 @@ router.get('/search', authenticateToken, asyncHandler(async (req, res) => {
  */
 router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(req.params.id);
+  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(req.params.id) as Skill | undefined;
   
   if (!skill) {
     throw new NotFoundError('Skill not found');
@@ -852,7 +853,7 @@ router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'skill
  */
 router.get('/:id/content', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(req.params.id);
+  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(req.params.id) as Skill | undefined;
   
   if (!skill) {
     throw new NotFoundError('Skill not found');
@@ -864,10 +865,11 @@ router.get('/:id/content', authenticateToken, asyncHandler(async (req, res) => {
     const skillMdPath = path.join(skillsDir, skill.name, 'SKILL.md');
     if (fs.existsSync(skillMdPath)) {
       const content = fs.readFileSync(skillMdPath, 'utf8');
-      return res.json({
+      res.json({
         success: true,
         data: { content, source: 'filesystem' },
       });
+      return;
     }
   }
   
@@ -916,7 +918,7 @@ router.get('/:id/content', authenticateToken, asyncHandler(async (req, res) => {
  */
 router.put('/:id/content', authenticateToken, requireAdmin, auditLog('update', 'skill-content'), asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(req.params.id);
+  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(req.params.id) as Skill | undefined;
   
   if (!skill) {
     throw new NotFoundError('Skill not found');

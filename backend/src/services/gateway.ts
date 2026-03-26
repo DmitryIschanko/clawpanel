@@ -261,6 +261,82 @@ class GatewayService {
     };
   }
 
+  // Get agents/sessions from Gateway
+  async getAgents(): Promise<any[]> {
+    return new Promise((resolve, reject) => {
+      if (!this.isAuthenticated) {
+        reject(new Error('Gateway not connected'));
+        return;
+      }
+      
+      const requestId = generateUUID();
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout waiting for agents list'));
+      }, 5000);
+      
+      const unsubscribe = this.on('agents.list', (data) => {
+        clearTimeout(timeout);
+        unsubscribe();
+        resolve(data.agents || []);
+      });
+      
+      this.send({
+        type: 'req',
+        id: requestId,
+        method: 'agents.list',
+        params: {}
+      });
+    });
+  }
+
+  // Get session history
+  async getSessionHistory(sessionId: string): Promise<any[]> {
+    return new Promise((resolve, reject) => {
+      if (!this.isAuthenticated) {
+        reject(new Error('Gateway not connected'));
+        return;
+      }
+      
+      const requestId = generateUUID();
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout waiting for session history'));
+      }, 5000);
+      
+      const unsubscribe = this.on('session.history', (data) => {
+        clearTimeout(timeout);
+        unsubscribe();
+        resolve(data.messages || []);
+      });
+      
+      this.send({
+        type: 'req',
+        id: requestId,
+        method: 'session.history',
+        params: { sessionId }
+      });
+    });
+  }
+
+  // Compact session
+  compactSession(sessionId: string): void {
+    this.send({
+      type: 'req',
+      id: generateUUID(),
+      method: 'session.compact',
+      params: { sessionId }
+    });
+  }
+
+  // Reset session
+  resetSession(sessionId: string): void {
+    this.send({
+      type: 'req',
+      id: generateUUID(),
+      method: 'session.reset',
+      params: { sessionId }
+    });
+  }
+
   disconnect(): void {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);

@@ -49,8 +49,8 @@ export async function sendMessageToAgent(agentName: string | number, content: st
       const jsonCandidate = stderr.substring(jsonStart);
       try {
         const response: AgentResponse = JSON.parse(jsonCandidate);
-        if (response.payloads) {
-          return response.payloads[0]?.text || '';
+        if (response.result?.payloads) {
+          return response.result.payloads[0]?.text || '';
         }
       } catch (e) {
         // Not valid JSON or doesn't have payloads, try next

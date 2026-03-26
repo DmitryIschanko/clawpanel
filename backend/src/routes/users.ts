@@ -85,7 +85,7 @@ router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'user'), 
 }));
 
 // Delete user (admin only)
-router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'user'), asyncHandler(async (req, res) => {
+router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'user'), asyncHandler(async (req: AuthRequest, res) => {
   const db = getDatabase();
   
   // Prevent self-deletion

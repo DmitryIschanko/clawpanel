@@ -3,6 +3,7 @@ import { getDatabase } from '../database';
 import { authenticateToken, requireAdmin } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
 import { NotFoundError } from '../utils/errors';
+import type { LLMProvider } from '../types/database';
 
 const router = Router();
 
@@ -47,7 +48,7 @@ const router = Router();
  */
 router.get('/providers', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const providers = db.prepare('SELECT * FROM llm_providers').all();
+  const providers = db.prepare('SELECT * FROM llm_providers').all() as LLMProvider[];
   
   res.json({
     success: true,
@@ -55,8 +56,8 @@ router.get('/providers', authenticateToken, asyncHandler(async (req, res) => {
       ...p,
       models: p.models ? JSON.parse(p.models) : [],
       api_key_env: undefined, // Don't expose env variable names to non-admin
-      api_key: p.api_key ? '***' : undefined, // Don't expose actual key
-      has_key: !!(p.api_key || process.env[p.api_key_env]), // Flag to indicate if key is set
+      api_key: undefined, // Don't expose actual key
+      has_key: !!process.env[p.api_key_env], // Flag to indicate if key is set
     })),
   });
 }));
@@ -105,15 +106,15 @@ router.get('/providers', authenticateToken, asyncHandler(async (req, res) => {
  */
 router.post('/providers/:id/test', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const provider = db.prepare('SELECT * FROM llm_providers WHERE id = ?').get(req.params.id);
+  const provider = db.prepare('SELECT * FROM llm_providers WHERE id = ?').get(req.params.id) as LLMProvider | undefined;
   
   if (!provider) {
     throw new NotFoundError('Provider not found');
   }
   
-  // Check if API key is set (either in database or environment)
+  // Check if API key is set in environment
   const envKey = process.env[provider.api_key_env];
-  const hasKey = !!(provider.api_key || envKey);
+  const hasKey = !!envKey;
   
   if (!hasKey) {
     res.json({
