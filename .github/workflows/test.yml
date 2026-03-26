@@ -18,17 +18,13 @@ jobs:
         with:
           node-version: '20'
           
-      - name: Install frontend deps
+      - name: Clean install frontend
         working-directory: ./frontend
-        run: npm install --legacy-peer-deps
+        run: rm -rf node_modules package-lock.json && npm install
         
       - name: Build frontend
         working-directory: ./frontend
         run: npm run build
-        
-      - name: Build backend
-        working-directory: ./backend
-        run: npm install --legacy-peer-deps && npm run build 2>&1 || echo "Build warnings expected"
         
       - name: Docker tests
         run: |
