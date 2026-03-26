@@ -90,13 +90,13 @@ export class AuthService {
     };
     
     const accessToken = jwt.sign(payload, config.jwt.secret, {
-      expiresIn: config.jwt.accessTtl,
+      expiresIn: config.jwt.accessTtl as any,
     });
     
     const refreshToken = jwt.sign(
       { id: user.id, type: 'refresh' },
       config.jwt.secret,
-      { expiresIn: config.jwt.refreshTtl }
+      { expiresIn: config.jwt.refreshTtl as any }
     );
     
     // Store refresh token

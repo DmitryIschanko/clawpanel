@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from 'react-query'
-import { Plus, Server, Trash2, Loader2, CheckCircle2, XCircle, ExternalLink, RefreshCw } from 'lucide-react'
+import { Plus, Server, Trash2, Loader2, CheckCircle2, XCircle, ExternalLink, RefreshCw, FileJson } from 'lucide-react'
 import { mcpApi } from '../services/api'
 
 interface McpServer {
@@ -14,6 +14,9 @@ interface McpServer {
 
 export function McpServersPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false)
+  const [importJson, setImportJson] = useState('')
+  const [isImporting, setIsImporting] = useState(false)
   const [newServer, setNewServer] = useState({ name: '', url: '', authType: 'none' })
   const [testingId, setTestingId] = useState<number | null>(null)
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({})
@@ -42,6 +45,25 @@ export function McpServersPage() {
       refetch()
     } catch (error) {
       alert('Failed to delete MCP server')
+    }
+  }
+
+  const handleImportJson = async () => {
+    if (!importJson.trim()) return
+    setIsImporting(true)
+    try {
+      const config = JSON.parse(importJson)
+      await mcpApi.importJson({ 
+        name: config.name || 'Imported MCP Server', 
+        configJson: importJson 
+      })
+      setIsImportModalOpen(false)
+      setImportJson('')
+      refetch()
+    } catch (error: any) {
+      alert('Failed to import: ' + (error.response?.data?.error || error.message))
+    } finally {
+      setIsImporting(false)
     }
   }
 
@@ -91,13 +113,31 @@ export function McpServersPage() {
           <h1 className="text-2xl font-bold">MCP Servers</h1>
           <p className="text-muted-foreground">Manage Model Context Protocol endpoints</p>
         </div>
-        <button
-          onClick={() => setIsCreateModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="w-4 h-4" />
-          Add Server
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href="https://www.pulsemcp.com/servers"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Browse pulsemcp.com
+          </a>
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80"
+          >
+            <FileJson className="w-4 h-4" />
+            Import JSON
+          </button>
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="w-4 h-4" />
+            Add Server
+          </button>
+        </div>
       </div>
 
       {servers?.length === 0 ? (
@@ -240,6 +280,65 @@ export function McpServersPage() {
                 className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
                 Add Server
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isImportModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-lg">
+            <h2 className="text-lg font-semibold mb-4">Import MCP Server from JSON</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Paste JSON config from{' '}
+              <a 
+                href="https://www.pulsemcp.com/servers" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                pulsemcp.com
+              </a>
+              {' '}or create manually
+            </p>
+            <div className="space-y-4">
+              <textarea
+                value={importJson}
+                onChange={(e) => setImportJson(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-secondary border border-border font-mono text-sm"
+                rows={12}
+                placeholder={`{
+  "name": "My MCP Server",
+  "url": "https://api.example.com/mcp",
+  "auth": {
+    "type": "api_key",
+    "apiKey": "your-api-key"
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search functionality",
+      "parameters": { ... }
+    }
+  ]
+}`}
+              />
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => setIsImportModalOpen(false)}
+                className="px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleImportJson}
+                disabled={!importJson.trim() || isImporting}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {isImporting && <Loader2 className="w-4 h-4 animate-spin" />}
+                Import
               </button>
             </div>
           </div>

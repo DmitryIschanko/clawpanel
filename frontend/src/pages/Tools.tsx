@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { useQuery } from 'react-query'
-import { Plus, Globe, Clock, Webhook, Trash2, Loader2, CheckCircle2, Bot } from 'lucide-react'
+import { Plus, Globe, Clock, Webhook, Trash2, Loader2, CheckCircle2, Bot, Server } from 'lucide-react'
 import { toolsApi, agentsApi } from '../services/api'
 
 interface Tool {
   id: number
   name: string
-  type: 'browser' | 'cron' | 'webhook'
+  type: 'browser' | 'cron' | 'webhook' | 'mcp'
   config: any
   enabled: boolean
   agentId?: number
+  mcpServerName?: string
   createdAt: number
 }
 
@@ -22,12 +23,14 @@ const toolIcons = {
   browser: Globe,
   cron: Clock,
   webhook: Webhook,
+  mcp: Server,
 }
 
 const toolLabels = {
   browser: 'Browser (Chromium)',
   cron: 'Cron Job',
   webhook: 'Webhook',
+  mcp: 'MCP Tool',
 }
 
 export function ToolsPage() {
@@ -107,7 +110,7 @@ export function ToolsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Tools</h1>
-          <p className="text-muted-foreground">Manage built-in tools (Browser, Cron, Webhooks)</p>
+          <p className="text-muted-foreground">Manage tools - built-in (Browser, Cron, Webhooks) and MCP tools from connected servers</p>
         </div>
         <button
           onClick={() => setIsCreateModalOpen(true)}
@@ -127,7 +130,7 @@ export function ToolsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4">
           {tools?.map((tool) => {
-            const Icon = toolIcons[tool.type]
+            const Icon = toolIcons[tool.type] || Server
             const agentName = getAgentName(tool.agentId)
             return (
               <div
@@ -145,8 +148,13 @@ export function ToolsPage() {
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold">{tool.name}</h3>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-secondary">
-                          {toolLabels[tool.type]}
+                          {toolLabels[tool.type] || tool.type}
                         </span>
+                        {tool.mcpServerName && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500">
+                            MCP: {tool.mcpServerName}
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-muted-foreground">
                         {tool.enabled ? 'Active' : 'Disabled'}

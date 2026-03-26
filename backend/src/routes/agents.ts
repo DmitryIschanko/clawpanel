@@ -10,6 +10,34 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+// Agent type from database
+interface Agent {
+  id: number;
+  name: string;
+  avatar?: string;
+  role?: string;
+  description?: string;
+  color?: string;
+  model?: string;
+  fallback_model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  thinking_level?: string;
+  sandbox_mode?: number;
+  system_prompt?: string;
+  status?: string;
+  skills?: string;
+  tools?: string;
+  delegate_to?: string;
+  created_at: number;
+  updated_at: number;
+}
+
+interface Skill {
+  id: number;
+  name: string;
+}
+
 const router = Router();
 
 // Get agents directory (similar to OpenClaw structure)
@@ -217,7 +245,7 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
 // Get single agent
 router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id);
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Agent | undefined;
   
   if (!agent) {
     throw new NotFoundError('Agent not found');
@@ -345,7 +373,7 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'agent'), a
 // Update agent
 router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'agent'), asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const agent = db.prepare('SELECT id FROM agents WHERE id = ?').get(req.params.id);
+  const agent = db.prepare('SELECT id FROM agents WHERE id = ?').get(req.params.id) as { id: number } | undefined;
   
   if (!agent) {
     throw new NotFoundError('Agent not found');
@@ -528,7 +556,7 @@ router.get('/:id/skills', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   
   // Get agent
-  const agent = db.prepare('SELECT id, name, skills FROM agents WHERE id = ?').get(req.params.id);
+  const agent = db.prepare('SELECT id, name, skills FROM agents WHERE id = ?').get(req.params.id) as { id: number; name: string; skills?: string } | undefined;
   if (!agent) {
     throw new NotFoundError('Agent not found');
   }
@@ -560,7 +588,7 @@ router.get('/:id/skills', authenticateToken, asyncHandler(async (req, res) => {
 // Update agent skills
 router.put('/:id/skills', authenticateToken, requireAdmin, auditLog('update', 'agent-skills'), asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const agent = db.prepare('SELECT id, name, skills FROM agents WHERE id = ?').get(req.params.id);
+  const agent = db.prepare('SELECT id, name, skills FROM agents WHERE id = ?').get(req.params.id) as { id: number; name: string; skills?: string } | undefined;
   
   if (!agent) {
     throw new NotFoundError('Agent not found');
@@ -588,7 +616,7 @@ router.put('/:id/skills', authenticateToken, requireAdmin, auditLog('update', 'a
   // Get skill names
   const skillNames: string[] = [];
   for (const skillId of skillIds) {
-    const skill = db.prepare('SELECT name FROM skills WHERE id = ?').get(skillId);
+    const skill = db.prepare('SELECT name FROM skills WHERE id = ?').get(skillId) as Skill | undefined;
     if (skill) {
       skillNames.push(skill.name);
     }

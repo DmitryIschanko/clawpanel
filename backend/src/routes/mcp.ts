@@ -8,6 +8,19 @@ import { logger } from '../utils/logger';
 import https from 'https';
 import http from 'http';
 
+// MCP Server type from database
+interface McpServer {
+  id: number;
+  name: string;
+  url: string;
+  auth_type: string;
+  auth_config?: string;
+  config_json?: string;
+  enabled: number;
+  created_at: number;
+  updated_at: number;
+}
+
 const router = Router();
 
 // List MCP servers
@@ -31,7 +44,7 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
 // Get single MCP server
 router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const server = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(req.params.id);
+  const server = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(req.params.id) as McpServer | undefined;
   
   if (!server) {
     throw new NotFoundError('MCP server not found');
@@ -69,7 +82,7 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'mcp'), asy
   const db = getDatabase();
   
   // Check for duplicate name
-  const existing = db.prepare('SELECT id FROM mcp_servers WHERE name = ?').get(name);
+  const existing = db.prepare('SELECT id FROM mcp_servers WHERE name = ?').get(name) as { id: number } | undefined;
   if (existing) {
     throw new ValidationError('MCP server with this name already exists');
   }
@@ -90,10 +103,108 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'mcp'), asy
   });
 }));
 
+// Import MCP server from JSON (e.g., from pulsemcp.com)
+router.post('/import-json', authenticateToken, requireAdmin, auditLog('create', 'mcp'), asyncHandler(async (req, res) => {
+  const { configJson } = req.body;
+  
+  if (!configJson) {
+    throw new ValidationError('configJson is required');
+  }
+  
+  // Parse the JSON config
+  let config: any;
+  try {
+    config = JSON.parse(configJson);
+  } catch (e) {
+    throw new ValidationError('Invalid JSON format');
+  }
+  
+  // Extract required fields
+  const name = config.name || config.mcpServer?.name || 'Imported MCP Server';
+  const url = config.url || config.mcpServer?.url;
+  
+  if (!url) {
+    throw new ValidationError('URL is required in JSON config');
+  }
+  
+  // Detect auth type from config
+  let authType = 'none';
+  let authConfig = {};
+  
+  if (config.auth?.type === 'api_key' || config.apiKey) {
+    authType = 'api_key';
+    authConfig = { apiKey: config.auth?.apiKey || config.apiKey };
+  } else if (config.auth?.type === 'bearer' || config.bearerToken) {
+    authType = 'bearer';
+    authConfig = { token: config.auth?.token || config.bearerToken };
+  } else if (config.auth?.type === 'basic' || (config.username && config.password)) {
+    authType = 'basic';
+    authConfig = { 
+      username: config.auth?.username || config.username,
+      password: config.auth?.password || config.password
+    };
+  }
+  
+  const db = getDatabase();
+  
+  // Check for duplicate name
+  const existing = db.prepare('SELECT id FROM mcp_servers WHERE name = ?').get(name) as { id: number } | undefined;
+  if (existing) {
+    throw new ValidationError('MCP server with this name already exists');
+  }
+  
+  // Insert MCP server with config_json
+  const result = db.prepare(`
+    INSERT INTO mcp_servers (name, url, auth_type, auth_config, config_json, enabled)
+    VALUES (?, ?, ?, ?, ?, 1)
+  `).run(
+    name,
+    url,
+    authType,
+    JSON.stringify(authConfig),
+    configJson
+  );
+  
+  const mcpServerId = result.lastInsertRowid;
+  
+  // Extract and create tools from config
+  const tools = config.tools || config.mcpServer?.tools || [];
+  if (Array.isArray(tools) && tools.length > 0) {
+    const toolStmt = db.prepare(`
+      INSERT INTO tools (name, type, config, enabled, mcp_server_id)
+      VALUES (?, 'mcp', ?, 1, ?)
+    `);
+    
+    for (const tool of tools) {
+      const toolName = tool.name || tool.function?.name || 'Unnamed Tool';
+      const toolConfig = JSON.stringify({
+        description: tool.description || tool.function?.description,
+        parameters: tool.parameters || tool.function?.parameters,
+      });
+      
+      try {
+        toolStmt.run(toolName, toolConfig, mcpServerId);
+      } catch (e) {
+        logger.warn(`Failed to import tool ${toolName}: ${e}`);
+      }
+    }
+  }
+  
+  res.status(201).json({
+    success: true,
+    data: { 
+      id: mcpServerId,
+      name,
+      url,
+      toolsImported: tools.length,
+    },
+  });
+}));
+
 // Update MCP server
 router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'mcp'), asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const server = db.prepare('SELECT id FROM mcp_servers WHERE id = ?').get(req.params.id);
+  const server = db.prepare('SELECT id FROM mcp_servers WHERE id = ?').get(req.params.id) as { id: number } | undefined;
   
   if (!server) {
     throw new NotFoundError('MCP server not found');
@@ -160,14 +271,24 @@ router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'mcp')
 // Test MCP server connection
 router.post('/:id/test', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const server = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(req.params.id);
+  const server = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(req.params.id) as McpServer | undefined;
   
   if (!server) {
     throw new NotFoundError('MCP server not found');
   }
   
-  // Simple health check - try to connect
-  const url = new URL(server.url);
+  // Validate URL format first
+  let url: URL;
+  try {
+    url = new URL(server.url);
+  } catch {
+    res.json({
+      success: true,
+      data: { reachable: false, error: 'Invalid URL format' },
+    });
+    return;
+  }
+  
   const protocol = url.protocol === 'https:' ? https : http;
   
   try {

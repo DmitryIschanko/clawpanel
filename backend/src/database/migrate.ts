@@ -218,6 +218,43 @@ const migrations = [
   `
   CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at);
   `,
+  
+  // Tools table - for built-in and MCP tools
+  `
+  CREATE TABLE IF NOT EXISTS tools (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL, -- browser, cron, webhook, mcp
+    config TEXT, -- JSON configuration
+    enabled INTEGER DEFAULT 1,
+    agent_id INTEGER, -- NULL = available to all agents
+    mcp_server_id INTEGER, -- NULL = built-in tool, set = from MCP
+    created_at INTEGER DEFAULT (unixepoch()),
+    updated_at INTEGER DEFAULT (unixepoch()),
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL,
+    FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+  );
+  `,
+  
+  // Create index for tools by agent
+  `
+  CREATE INDEX IF NOT EXISTS idx_tools_agent_id ON tools(agent_id);
+  `,
+  
+  // Add config_json column to mcp_servers (for storing raw JSON from pulsemcp.com)
+  `
+  ALTER TABLE mcp_servers ADD COLUMN config_json TEXT;
+  `,
+  
+  // Add mcp_server_id column to tools table
+  `
+  ALTER TABLE tools ADD COLUMN mcp_server_id INTEGER REFERENCES mcp_servers(id) ON DELETE CASCADE;
+  `,
+  
+  // Create index for tools by MCP server
+  `
+  CREATE INDEX IF NOT EXISTS idx_tools_mcp_server_id ON tools(mcp_server_id);
+  `,
 ];
 
 const seeds = [
@@ -241,7 +278,7 @@ const seeds = [
   `,
 ];
 
-async function migrate() {
+export async function runMigrations() {
   console.log('Running migrations...');
   const db = getDatabase();
   
@@ -281,10 +318,17 @@ async function migrate() {
     console.log('Seeds completed successfully');
   } catch (error) {
     console.error('Migration failed:', error);
-    process.exit(1);
-  } finally {
-    closeDatabase();
+    throw error;
   }
+  // Note: We don't close the database here because it's used by the main app
 }
 
-migrate();
+// Run migrations if this file is executed directly
+if (require.main === module) {
+  runMigrations().then(() => {
+    closeDatabase();
+    process.exit(0);
+  }).catch(() => {
+    process.exit(1);
+  });
+}

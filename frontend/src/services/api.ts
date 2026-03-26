@@ -192,6 +192,8 @@ export const mcpApi = {
     api.put(`/mcp/${id}`, data),
   delete: (id: number) => api.delete(`/mcp/${id}`),
   test: (id: number) => api.post(`/mcp/${id}/test`),
+  importJson: (data: { name: string; configJson: string }) =>
+    api.post('/mcp/import-json', data),
 }
 
 // Tools API

@@ -12,8 +12,11 @@ import { errorHandler } from './middleware/errorHandler';
 import routes from './routes';
 import { gatewayService } from './services/gateway';
 import { setupWebSocketServer } from './websocket';
+import { runMigrations } from './database/migrate';
 
 async function main() {
+  // Run database migrations first
+  await runMigrations();
   const app = express();
   const server = createServer(app);
   

@@ -11,7 +11,12 @@ const router = Router();
 // List tools
 router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const tools = db.prepare('SELECT * FROM tools ORDER BY created_at DESC').all();
+  const tools = db.prepare(`
+    SELECT t.*, m.name as mcp_server_name 
+    FROM tools t
+    LEFT JOIN mcp_servers m ON t.mcp_server_id = m.id
+    ORDER BY t.created_at DESC
+  `).all();
   
   res.json({
     success: true,
@@ -22,6 +27,7 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
       config: t.config ? JSON.parse(t.config) : {},
       enabled: t.enabled === 1,
       agentId: t.agent_id,
+      mcpServerName: t.mcp_server_name,
       createdAt: t.created_at,
     })),
   });
