@@ -4,28 +4,21 @@ services:
   backend-test:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.test
     environment:
       NODE_ENV: test
       JWT_SECRET: test-secret-key
       SQLITE_PATH: ":memory:"
-      GATEWAY_URL: ws://host.docker.internal:18789
-      GATEWAY_PASSWORD: test-password
-      GATEWAY_TOKEN: test-token
-      HOST_EXECUTOR_URL: http://host.docker.internal:3002
-      HOST_EXECUTOR_TOKEN: test-token
     volumes:
       - ./backend:/app
       - /app/node_modules
     working_dir: /app
     command: npm test
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   backend-test-coverage:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.test
     environment:
       NODE_ENV: test
       JWT_SECRET: test-secret-key
@@ -36,5 +29,3 @@ services:
       - /app/node_modules
     working_dir: /app
     command: npm run test:coverage
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
