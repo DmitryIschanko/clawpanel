@@ -7,7 +7,52 @@ import { auditLog } from '../middleware/audit';
 
 const router = Router();
 
-// List chains
+/**
+ * @swagger
+ * tags:
+ *   name: Chains
+ *   description: Workflow chain management
+ */
+
+/**
+ * @swagger
+ * /chains:
+ *   get:
+ *     summary: List all chains
+ *     description: Get list of all workflow chains
+ *     tags: [Chains]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of chains
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *                       description:
+ *                         type: string
+ *                       nodes:
+ *                         type: array
+ *                       edges:
+ *                         type: array
+ *                       triggers:
+ *                         type: array
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const chains = db.prepare('SELECT * FROM chains ORDER BY created_at DESC').all();
@@ -24,7 +69,51 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Get single chain
+/**
+ * @swagger
+ * /chains/{id}:
+ *   get:
+ *     summary: Get chain details
+ *     description: Get detailed information about a chain including run history
+ *     tags: [Chains]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Chain details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     name:
+ *                       type: string
+ *                     description:
+ *                       type: string
+ *                     nodes:
+ *                       type: array
+ *                     edges:
+ *                       type: array
+ *                     runs:
+ *                       type: array
+ *       404:
+ *         description: Chain not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const chain = db.prepare('SELECT * FROM chains WHERE id = ?').get(req.params.id);
@@ -53,7 +142,50 @@ router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Create chain
+/**
+ * @swagger
+ * /chains:
+ *   post:
+ *     summary: Create chain
+ *     description: Create a new workflow chain (admin only)
+ *     tags: [Chains]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - nodes
+ *               - edges
+ *             properties:
+ *               name:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               nodes:
+ *                 type: array
+ *                 description: Array of node objects
+ *               edges:
+ *                 type: array
+ *                 description: Array of edge objects
+ *               triggers:
+ *                 type: array
+ *               variables:
+ *                 type: object
+ *     responses:
+ *       201:
+ *         description: Chain created successfully
+ *       400:
+ *         description: Missing required fields
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.post('/', authenticateToken, requireAdmin, auditLog('create', 'chain'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const {
@@ -95,7 +227,49 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'chain'), a
   });
 }));
 
-// Update chain
+/**
+ * @swagger
+ * /chains/{id}:
+ *   put:
+ *     summary: Update chain
+ *     description: Update an existing chain (admin only)
+ *     tags: [Chains]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               nodes:
+ *                 type: array
+ *               edges:
+ *                 type: array
+ *               triggers:
+ *                 type: array
+ *               variables:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Chain updated successfully
+ *       404:
+ *         description: Chain not found
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'chain'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const chain = db.prepare('SELECT id FROM chains WHERE id = ?').get(req.params.id);
@@ -129,7 +303,31 @@ router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'chain'),
   });
 }));
 
-// Delete chain
+/**
+ * @swagger
+ * /chains/{id}:
+ *   delete:
+ *     summary: Delete chain
+ *     description: Delete a workflow chain (admin only)
+ *     tags: [Chains]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Chain deleted successfully
+ *       404:
+ *         description: Chain not found
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'chain'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const result = db.prepare('DELETE FROM chains WHERE id = ?').run(req.params.id);
@@ -144,7 +342,52 @@ router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'chain
   });
 }));
 
-// Run chain
+/**
+ * @swagger
+ * /chains/{id}/run:
+ *   post:
+ *     summary: Run chain
+ *     description: Execute a workflow chain
+ *     tags: [Chains]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               variables:
+ *                 type: object
+ *                 description: Input variables for the chain
+ *     responses:
+ *       200:
+ *         description: Chain execution started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     runId:
+ *                       type: integer
+ *                     status:
+ *                       type: string
+ *       404:
+ *         description: Chain not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/:id/run', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const chain = db.prepare('SELECT * FROM chains WHERE id = ?').get(req.params.id);

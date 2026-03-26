@@ -14,6 +14,13 @@ import { spawn } from 'child_process';
 
 const router = Router();
 
+/**
+ * @swagger
+ * tags:
+ *   name: Skills
+ *   description: Skill management and ClawHub integration
+ */
+
 const CLAWHUB_API = 'clawhub.ai';
 
 // Get OpenClaw skills directory
@@ -300,7 +307,43 @@ async function searchClawHub(query: string): Promise<any[]> {
   });
 }
 
-// List skills
+/**
+ * @swagger
+ * /skills:
+ *   get:
+ *     summary: List all skills
+ *     description: Get list of all installed skills with OpenClaw status
+ *     tags: [Skills]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of skills
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *                       description:
+ *                         type: string
+ *                       version:
+ *                         type: string
+ *                       openclaw:
+ *                         type: object
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const skills = db.prepare('SELECT * FROM skills ORDER BY created_at DESC').all();
@@ -321,7 +364,50 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Search ClawHub
+/**
+ * @swagger
+ * /skills/search:
+ *   get:
+ *     summary: Search ClawHub
+ *     description: Search for skills in the ClawHub registry
+ *     tags: [Skills]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Search query
+ *     responses:
+ *       200:
+ *         description: Search results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       name:
+ *                         type: string
+ *                       description:
+ *                         type: string
+ *                       version:
+ *                         type: string
+ *                       author:
+ *                         type: string
+ *       400:
+ *         description: Missing query parameter
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/search', authenticateToken, asyncHandler(async (req, res) => {
   const { q } = req.query;
   
@@ -337,7 +423,52 @@ router.get('/search', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Get single skill
+/**
+ * @swagger
+ * /skills/{id}:
+ *   get:
+ *     summary: Get skill details
+ *     description: Get detailed information about a specific skill
+ *     tags: [Skills]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Skill ID
+ *     responses:
+ *       200:
+ *         description: Skill details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     name:
+ *                       type: string
+ *                     description:
+ *                       type: string
+ *                     version:
+ *                       type: string
+ *                     author:
+ *                       type: string
+ *                     security_flags:
+ *                       type: object
+ *       404:
+ *         description: Skill not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(req.params.id);
@@ -355,7 +486,53 @@ router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Install skill from ClawHub
+/**
+ * @swagger
+ * /skills/install:
+ *   post:
+ *     summary: Install skill from ClawHub
+ *     description: Install a skill from ClawHub registry (admin only)
+ *     tags: [Skills]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 description: Skill name/package name
+ *     responses:
+ *       200:
+ *         description: Skill installed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     name:
+ *                       type: string
+ *                     version:
+ *                       type: string
+ *       400:
+ *         description: Invalid request or skill already installed
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.post('/install', authenticateToken, requireAdmin, auditLog('install', 'skill'), asyncHandler(async (req, res) => {
   const { name } = req.body;
   
@@ -465,7 +642,40 @@ router.post('/install', authenticateToken, requireAdmin, auditLog('install', 'sk
   }
 }));
 
-// Upload skill
+/**
+ * @swagger
+ * /skills/upload:
+ *   post:
+ *     summary: Upload custom skill
+ *     description: Upload a custom skill with code content (admin only)
+ *     tags: [Skills]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - content
+ *             properties:
+ *               name:
+ *                 type: string
+ *               content:
+ *                 type: string
+ *                 description: Skill code content
+ *     responses:
+ *       201:
+ *         description: Skill uploaded successfully
+ *       400:
+ *         description: Missing required fields
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.post('/upload', authenticateToken, requireAdmin, auditLog('upload', 'skill'), asyncHandler(async (req, res) => {
   const { name, content } = req.body;
   
@@ -504,7 +714,41 @@ router.post('/upload', authenticateToken, requireAdmin, auditLog('upload', 'skil
   });
 }));
 
-// Update skill
+/**
+ * @swagger
+ * /skills/{id}:
+ *   put:
+ *     summary: Update skill
+ *     description: Update skill metadata (admin only)
+ *     tags: [Skills]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               description:
+ *                 type: string
+ *               enabled:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Skill updated successfully
+ *       404:
+ *         description: Skill not found
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'skill'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const skill = db.prepare('SELECT id FROM skills WHERE id = ?').get(req.params.id);
@@ -529,7 +773,31 @@ router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'skill'),
   });
 }));
 
-// Delete skill
+/**
+ * @swagger
+ * /skills/{id}:
+ *   delete:
+ *     summary: Delete skill
+ *     description: Delete a skill permanently (admin only)
+ *     tags: [Skills]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Skill deleted successfully
+ *       404:
+ *         description: Skill not found
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'skill'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const result = db.prepare('DELETE FROM skills WHERE id = ?').run(req.params.id);
@@ -544,7 +812,44 @@ router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'skill
   });
 }));
 
-// Get SKILL.md content from filesystem
+/**
+ * @swagger
+ * /skills/{id}/content:
+ *   get:
+ *     summary: Get skill content
+ *     description: Get the SKILL.md content of a skill
+ *     tags: [Skills]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Skill content
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     content:
+ *                       type: string
+ *                     source:
+ *                       type: string
+ *                       enum: [filesystem, database]
+ *       404:
+ *         description: Skill not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/:id/content', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(req.params.id);
@@ -573,7 +878,42 @@ router.get('/:id/content', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Update SKILL.md content
+/**
+ * @swagger
+ * /skills/{id}/content:
+ *   put:
+ *     summary: Update skill content
+ *     description: Update the SKILL.md content of a skill (admin only)
+ *     tags: [Skills]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - content
+ *             properties:
+ *               content:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Skill content updated successfully
+ *       404:
+ *         description: Skill not found
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.put('/:id/content', authenticateToken, requireAdmin, auditLog('update', 'skill-content'), asyncHandler(async (req, res) => {
   const db = getDatabase();
   const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(req.params.id);

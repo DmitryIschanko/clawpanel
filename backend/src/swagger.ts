@@ -36,6 +36,22 @@ const options: swaggerJsdoc.Options = {
         name: 'Tools',
         description: 'Tool management and assignment to agents',
       },
+      {
+        name: 'Files',
+        description: 'File system operations',
+      },
+      {
+        name: 'LLM',
+        description: 'LLM providers and model management',
+      },
+      {
+        name: 'Skills',
+        description: 'OpenClaw skills and ClawHub integration',
+      },
+      {
+        name: 'Chains',
+        description: 'Workflow chain management',
+      },
     ],
     components: {
       securitySchemes: {

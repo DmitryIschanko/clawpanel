@@ -6,7 +6,45 @@ import { NotFoundError } from '../utils/errors';
 
 const router = Router();
 
-// List providers
+/**
+ * @swagger
+ * /llm/providers:
+ *   get:
+ *     summary: List LLM providers
+ *     description: Get list of all configured LLM providers (OpenAI, Anthropic, etc.)
+ *     tags: [LLM]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of providers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *                       key:
+ *                         type: string
+ *                       models:
+ *                         type: array
+ *                         items:
+ *                           type: object
+ *                       has_key:
+ *                         type: boolean
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/providers', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const providers = db.prepare('SELECT * FROM llm_providers').all();
@@ -23,7 +61,48 @@ router.get('/providers', authenticateToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// Test provider connection
+/**
+ * @swagger
+ * /llm/providers/{id}/test:
+ *   post:
+ *     summary: Test LLM provider connection
+ *     description: Test connectivity and API key validity for a provider
+ *     tags: [LLM]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Provider ID
+ *     responses:
+ *       200:
+ *         description: Test result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     connected:
+ *                       type: boolean
+ *                     latency:
+ *                       type: integer
+ *                     error:
+ *                       type: string
+ *       404:
+ *         description: Provider not found
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.post('/providers/:id/test', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const provider = db.prepare('SELECT * FROM llm_providers WHERE id = ?').get(req.params.id);
@@ -97,7 +176,43 @@ router.delete('/providers/:id/api-key', authenticateToken, requireAdmin, asyncHa
   });
 }));
 
-// Get available models (only from providers with configured keys)
+/**
+ * @swagger
+ * /llm/models:
+ *   get:
+ *     summary: List available models
+ *     description: Get all available models from providers with configured API keys
+ *     tags: [LLM]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of available models
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       provider:
+ *                         type: string
+ *                       providerName:
+ *                         type: string
+ *                       pricing:
+ *                         type: object
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/models', authenticateToken, asyncHandler(async (req, res) => {
   const db = getDatabase();
   const providers = db.prepare('SELECT * FROM llm_providers WHERE enabled = 1').all();
