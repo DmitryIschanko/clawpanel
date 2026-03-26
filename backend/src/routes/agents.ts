@@ -173,19 +173,40 @@ function getAgentMemory(agentId: string): { exists: boolean; path?: string; file
   }
 }
 
-// Delete agent memory
-function deleteAgentMemory(agentId: string): boolean {
+// Delete agent memory from host via Host Executor
+async function deleteAgentFromHost(agentId: string): Promise<boolean> {
   try {
-    const agentsDir = getAgentsDir();
-    const agentDir = path.join(agentsDir, `clawpanel-${agentId}`);
+    const agentName = `clawpanel-${agentId}`;
     
-    if (fs.existsSync(agentDir)) {
-      fs.rmSync(agentDir, { recursive: true, force: true });
-      logger.info(`Deleted agent memory: ${agentDir}`);
+    // 1. Remove agent from OpenClaw (ignore errors if not registered)
+    try {
+      await execOnHost(`openclaw agents remove ${agentName}`);
+      logger.info(`Removed agent from OpenClaw: ${agentName}`);
+    } catch (error) {
+      // Agent might not be registered, continue
+      logger.warn(`Agent ${agentName} not found in OpenClaw or removal failed`);
     }
+    
+    // 2. Remove agent directory from filesystem
+    const agentDir = `/root/.openclaw/agents/${agentName}`;
+    try {
+      await execOnHost(`rm -rf ${agentDir}`);
+      logger.info(`Deleted agent directory: ${agentDir}`);
+    } catch (error) {
+      logger.warn(`Failed to delete agent directory: ${error}`);
+    }
+    
+    // 3. Restart Gateway to apply changes
+    try {
+      await execOnHost('systemctl restart openclaw-gateway');
+      logger.info('Gateway restarted after agent removal');
+    } catch (error) {
+      logger.warn(`Failed to restart gateway: ${error}`);
+    }
+    
     return true;
   } catch (error) {
-    logger.error(`Failed to delete agent memory: ${error}`);
+    logger.error(`Failed to delete agent from host: ${error}`);
     return false;
   }
 }
@@ -671,14 +692,18 @@ router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'agent'),
  */
 router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'agent'), asyncHandler(async (req, res) => {
   const db = getDatabase();
+  
+  // Get agent name before deletion for logging
+  const agent = db.prepare('SELECT id, name FROM agents WHERE id = ?').get(req.params.id) as Agent | undefined;
+  
   const result = db.prepare('DELETE FROM agents WHERE id = ?').run(req.params.id);
   
   if (result.changes === 0) {
     throw new NotFoundError('Agent not found');
   }
   
-  // Delete agent memory
-  deleteAgentMemory(req.params.id);
+  // Delete agent from host (OpenClaw + filesystem)
+  await deleteAgentFromHost(req.params.id);
   
   res.json({
     success: true,

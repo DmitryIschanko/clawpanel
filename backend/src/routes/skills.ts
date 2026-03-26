@@ -5,6 +5,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { auditLog } from '../middleware/audit';
 import { logger } from '../utils/logger';
+import { execOnHost } from '../services/hostExecutor';
 import https from 'https';
 import AdmZip from 'adm-zip';
 import fs from 'fs';
@@ -41,6 +42,35 @@ function getOpenClawSkillsDir(): string | null {
   
   // Default to ~/.openclaw/skills
   return path.join(os.homedir(), '.openclaw', 'skills');
+}
+
+// Delete skill from host via Host Executor
+async function deleteSkillFromHost(skillName: string): Promise<boolean> {
+  try {
+    const skillsDir = '/root/.openclaw/skills';
+    const skillDir = `${skillsDir}/${skillName}`;
+    
+    // Remove skill directory from filesystem
+    try {
+      await execOnHost(`rm -rf ${skillDir}`);
+      logger.info(`Deleted skill directory: ${skillDir}`);
+    } catch (error) {
+      logger.warn(`Failed to delete skill directory: ${error}`);
+    }
+    
+    // Restart Gateway to apply changes
+    try {
+      await execOnHost('systemctl restart openclaw-gateway');
+      logger.info('Gateway restarted after skill removal');
+    } catch (error) {
+      logger.warn(`Failed to restart gateway: ${error}`);
+    }
+    
+    return true;
+  } catch (error) {
+    logger.error(`Failed to delete skill from host: ${error}`);
+    return false;
+  }
 }
 
 // Check if skill is installed in OpenClaw
@@ -801,10 +831,19 @@ router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'skill'),
  */
 router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'skill'), asyncHandler(async (req, res) => {
   const db = getDatabase();
+  
+  // Get skill name before deletion
+  const skill = db.prepare('SELECT id, name FROM skills WHERE id = ?').get(req.params.id) as Skill | undefined;
+  
   const result = db.prepare('DELETE FROM skills WHERE id = ?').run(req.params.id);
   
   if (result.changes === 0) {
     throw new NotFoundError('Skill not found');
+  }
+  
+  // Delete skill from host filesystem
+  if (skill) {
+    await deleteSkillFromHost(skill.name);
   }
   
   res.json({
