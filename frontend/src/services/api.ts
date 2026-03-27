@@ -138,6 +138,9 @@ export const chainsApi = {
   delete: (id: number) => api.delete(`/chains/${id}`),
   run: (id: number, task: string) => api.post(`/chains/${id}/run`, { task }),
   getRunStatus: (runId: number) => api.get(`/chains/runs/${runId}/status`),
+  getRun: (runId: number) => api.get(`/chains/runs/${runId}`),
+  getRuns: (chainId: number) => api.get(`/chains/${chainId}/runs`),
+  downloadRun: (runId: number) => api.get(`/chains/runs/${runId}/download`, { responseType: 'blob' }),
 }
 
 // Channels API

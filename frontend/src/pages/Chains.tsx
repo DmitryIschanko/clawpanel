@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from 'react-query'
-import { Plus, Workflow, Play, Trash2, Edit, Loader2, Save, X } from 'lucide-react'
+import { Plus, Workflow, Play, Trash2, Edit, Loader2, Save, X, History, Download, FileText } from 'lucide-react'
 import { chainsApi, agentsApi } from '../services/api'
 import type { Chain, ChainNode, ChainEdge, Agent } from '../types'
 
@@ -14,6 +14,14 @@ interface RunningChain {
   steps?: Array<{ agentId: number; status: string; output?: string }>;
 }
 
+interface ChainRun {
+  id: number;
+  status: string;
+  startedAt: number;
+  completedAt?: number;
+  error?: string;
+}
+
 export function ChainsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [editingChain, setEditingChain] = useState<Chain | null>(null)
@@ -21,6 +29,8 @@ export function ChainsPage() {
   const [isRunModalOpen, setIsRunModalOpen] = useState(false)
   const [selectedChainId, setSelectedChainId] = useState<number | null>(null)
   const [taskInput, setTaskInput] = useState('')
+  const [viewingRuns, setViewingRuns] = useState<number | null>(null)
+  const [viewingRunResult, setViewingRunResult] = useState<number | null>(null)
   
   const { data: chains, isLoading, refetch } = useQuery<Chain[]>(
     'chains',
@@ -141,6 +151,13 @@ export function ChainsPage() {
                     title="Run chain"
                   >
                     <Play className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setViewingRuns(chain.id)}
+                    className="p-2 rounded-lg hover:bg-muted"
+                    title="View history"
+                  >
+                    <History className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setEditingChain(chain)}
@@ -314,6 +331,23 @@ export function ChainsPage() {
           }}
         />
       )}
+
+      {/* Chain Runs History Modal */}
+      {viewingRuns && (
+        <ChainRunsModal
+          chainId={viewingRuns}
+          onClose={() => setViewingRuns(null)}
+          onViewResult={(runId) => setViewingRunResult(runId)}
+        />
+      )}
+
+      {/* View Run Result Modal */}
+      {viewingRunResult && (
+        <ChainRunResultModal
+          runId={viewingRunResult}
+          onClose={() => setViewingRunResult(null)}
+        />
+      )}
     </div>
   )
 }
@@ -483,6 +517,245 @@ function ChainModal({
             {chain ? 'Update' : 'Create'}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Chain Runs History Modal
+function ChainRunsModal({
+  chainId,
+  onClose,
+  onViewResult,
+}: {
+  chainId: number;
+  onClose: () => void;
+  onViewResult: (runId: number) => void;
+}) {
+  const { data: runs, isLoading } = useQuery<ChainRun[]>(
+    ['chain-runs', chainId],
+    async () => {
+      const response = await chainsApi.getRuns(chainId)
+      return response.data.data
+    }
+  )
+
+  const handleDownload = async (runId: number) => {
+    try {
+      const response = await chainsApi.downloadRun(runId)
+      const blob = new Blob([response.data], { type: 'text/markdown' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `chain-run-${runId}.md`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      alert('Failed to download')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-card border border-border rounded-xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Chain Execution History</h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-muted">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center h-32">
+            <Loader2 className="w-8 h-8 animate-spin" />
+          </div>
+        ) : runs?.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No executions yet
+          </div>
+        ) : (
+          <div className="overflow-auto flex-1">
+            <table className="w-full">
+              <thead className="bg-muted sticky top-0">
+                <tr>
+                  <th className="text-left p-2 text-sm font-medium">ID</th>
+                  <th className="text-left p-2 text-sm font-medium">Status</th>
+                  <th className="text-left p-2 text-sm font-medium">Started</th>
+                  <th className="text-left p-2 text-sm font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs?.map((run) => (
+                  <tr key={run.id} className="border-b border-border">
+                    <td className="p-2">#{run.id}</td>
+                    <td className="p-2">
+                      <span className={`px-2 py-1 rounded text-xs ${
+                        run.status === 'completed' ? 'bg-green-500/20 text-green-500' :
+                        run.status === 'failed' ? 'bg-destructive/20 text-destructive' :
+                        'bg-yellow-500/20 text-yellow-500'
+                      }`}>
+                        {run.status}
+                      </span>
+                    </td>
+                    <td className="p-2 text-sm text-muted-foreground">
+                      {new Date(run.startedAt * 1000).toLocaleString()}
+                    </td>
+                    <td className="p-2">
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => onViewResult(run.id)}
+                          className="p-1.5 rounded hover:bg-muted"
+                          title="View result"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDownload(run.id)}
+                          className="p-1.5 rounded hover:bg-muted"
+                          title="Download"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Chain Run Result Modal
+function ChainRunResultModal({
+  runId,
+  onClose,
+}: {
+  runId: number;
+  onClose: () => void;
+}) {
+  const { data: run, isLoading } = useQuery(
+    ['chain-run', runId],
+    async () => {
+      const response = await chainsApi.getRun(runId)
+      return response.data.data
+    }
+  )
+
+  const handleDownload = async () => {
+    try {
+      const response = await chainsApi.downloadRun(runId)
+      const blob = new Blob([response.data], { type: 'text/markdown' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `chain-run-${runId}.md`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      alert('Failed to download')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-card border border-border rounded-xl p-6 w-full max-w-4xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold">Execution Result #{runId}</h2>
+            {run && (
+              <p className="text-sm text-muted-foreground">
+                Chain: {run.chainName} | Status: {' '}
+                <span className={`${
+                  run.status === 'completed' ? 'text-green-500' :
+                  run.status === 'failed' ? 'text-destructive' : 'text-yellow-500'
+                }`}>
+                  {run.status}
+                </span>
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDownload}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary hover:bg-secondary/80"
+            >
+              <Download className="w-4 h-4" />
+              Download
+            </button>
+            <button onClick={onClose} className="p-1 rounded hover:bg-muted">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center h-32">
+            <Loader2 className="w-8 h-8 animate-spin" />
+          </div>
+        ) : run?.output ? (
+          <div className="overflow-auto flex-1 space-y-4">
+            {run.output.task && (
+              <div className="p-4 bg-muted rounded-lg">
+                <h3 className="font-medium mb-2">Task</h3>
+                <p className="text-sm">{run.output.task}</p>
+              </div>
+            )}
+            
+            {run.output.steps && (
+              <div className="space-y-2">
+                <h3 className="font-medium">Steps</h3>
+                {run.output.steps.map((step: any, index: number) => (
+                  <div key={index} className="p-4 bg-muted rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="font-medium">Step {index + 1}:</span>
+                      <span>Agent {step.agentId}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        step.status === 'completed' ? 'bg-green-500/20 text-green-500' :
+                        step.status === 'failed' ? 'bg-destructive/20 text-destructive' :
+                        'bg-yellow-500/20 text-yellow-500'
+                      }`}>
+                        {step.status}
+                      </span>
+                    </div>
+                    {step.output && (
+                      <pre className="text-sm bg-background p-3 rounded overflow-auto max-h-64">
+                        {step.output}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {run.output.result && (
+              <div className="p-4 bg-primary/10 border border-primary/30 rounded-lg">
+                <h3 className="font-medium mb-2">Final Result</h3>
+                <pre className="text-sm bg-background p-3 rounded overflow-auto max-h-64">
+                  {run.output.result}
+                </pre>
+              </div>
+            )}
+            
+            {run.error && (
+              <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
+                <h3 className="font-medium mb-2 text-destructive">Error</h3>
+                <pre className="text-sm overflow-auto">{run.error}</pre>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-muted-foreground">
+            No output available
+          </div>
+        )}
       </div>
     </div>
   )

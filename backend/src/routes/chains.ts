@@ -479,4 +479,179 @@ router.get('/runs/:runId/status', authenticateToken, asyncHandler(async (req, re
   });
 }));
 
+/**
+ * @swagger
+ * /chains/runs/{runId}:
+ *   get:
+ *     summary: Get chain run details
+ *     description: Get full details of a chain execution including all outputs
+ *     tags: [Chains]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: runId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Run details
+ *       404:
+ *         description: Run not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/runs/:runId', authenticateToken, asyncHandler(async (req, res) => {
+  const db = getDatabase();
+  const run = db.prepare(`
+    SELECT cr.*, c.name as chain_name 
+    FROM chain_runs cr
+    JOIN chains c ON cr.chain_id = c.id
+    WHERE cr.id = ?
+  `).get(req.params.runId) as (ChainRun & { chain_name: string }) | undefined;
+  
+  if (!run) {
+    throw new NotFoundError('Run not found');
+  }
+  
+  // Also get chain details for context
+  const chain = db.prepare('SELECT * FROM chains WHERE id = ?').get(run.chain_id) as Chain | undefined;
+  
+  res.json({
+    success: true,
+    data: {
+      id: run.id,
+      chainId: run.chain_id,
+      chainName: run.chain_name,
+      status: run.status,
+      startedAt: run.started_at,
+      completedAt: run.completed_at,
+      error: run.error,
+      output: run.output ? JSON.parse(run.output) : null,
+      nodes: chain ? JSON.parse(chain.nodes) : [],
+    },
+  });
+}));
+
+/**
+ * @swagger
+ * /chains/{id}/runs:
+ *   get:
+ *     summary: Get chain run history
+ *     description: Get execution history for a specific chain
+ *     tags: [Chains]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: List of runs
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/:id/runs', authenticateToken, asyncHandler(async (req, res) => {
+  const db = getDatabase();
+  const runs = db.prepare(`
+    SELECT id, status, started_at, completed_at, error
+    FROM chain_runs 
+    WHERE chain_id = ? 
+    ORDER BY started_at DESC 
+    LIMIT 50
+  `).all(req.params.id) as ChainRun[];
+  
+  res.json({
+    success: true,
+    data: runs.map(run => ({
+      id: run.id,
+      status: run.status,
+      startedAt: run.started_at,
+      completedAt: run.completed_at,
+      error: run.error,
+    })),
+  });
+}));
+
+/**
+ * @swagger
+ * /chains/runs/{runId}/download:
+ *   get:
+ *     summary: Download chain run result
+ *     description: Download the result of a chain execution as a text file
+ *     tags: [Chains]
+ *     parameters:
+ *       - in: path
+ *         name: runId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: File download
+ *       404:
+ *         description: Run not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/runs/:runId/download', authenticateToken, asyncHandler(async (req, res) => {
+  const db = getDatabase();
+  const run = db.prepare(`
+    SELECT cr.*, c.name as chain_name 
+    FROM chain_runs cr
+    JOIN chains c ON cr.chain_id = c.id
+    WHERE cr.id = ?
+  `).get(req.params.runId) as (ChainRun & { chain_name: string }) | undefined;
+  
+  if (!run) {
+    throw new NotFoundError('Run not found');
+  }
+  
+  const output = run.output ? JSON.parse(run.output) : null;
+  
+  // Build markdown content
+  let content = `# Chain Execution Result\n\n`;
+  content += `**Chain:** ${run.chain_name}\n`;
+  content += `**Status:** ${run.status}\n`;
+  content += `**Started:** ${new Date(run.started_at * 1000).toLocaleString()}\n`;
+  if (run.completed_at) {
+    content += `**Completed:** ${new Date(run.completed_at * 1000).toLocaleString()}\n`;
+  }
+  content += `\n---\n\n`;
+  
+  if (output?.task) {
+    content += `## Task\n\n${output.task}\n\n---\n\n`;
+  }
+  
+  if (output?.steps) {
+    content += `## Steps\n\n`;
+    output.steps.forEach((step: any, index: number) => {
+      content += `### Step ${index + 1}: Agent ${step.agentId}\n\n`;
+      content += `**Status:** ${step.status}\n\n`;
+      if (step.output) {
+        content += `**Output:**\n\n\`\`\`\n${step.output}\n\`\`\`\n\n`;
+      }
+      content += `---\n\n`;
+    });
+  }
+  
+  if (output?.result) {
+    content += `## Final Result\n\n\`\`\`\n${output.result}\n\`\`\`\n`;
+  }
+  
+  if (run.error) {
+    content += `## Error\n\n\`\`\`\n${run.error}\n\`\`\`\n`;
+  }
+  
+  const filename = `chain-run-${run.id}-${run.chain_name.replace(/\s+/g, '_').toLowerCase()}.md`;
+  
+  res.setHeader('Content-Type', 'text/markdown');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(content);
+}));
+
 export default router;
