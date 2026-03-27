@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from 'react-query'
-import { Plus, Trash2, Shield, User as UserIcon } from 'lucide-react'
+import { Plus, Trash2, Shield, User as UserIcon, Key, Eye, EyeOff } from 'lucide-react'
 import { usersApi } from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import type { User } from '../types'
@@ -9,6 +9,9 @@ export function UsersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'operator' })
   const { user: currentUser } = useAuthStore()
+  const [editingUser, setEditingUser] = useState<User | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
 
   const { data: users, isLoading, refetch } = useQuery<User[]>('users', async () => {
     const response = await usersApi.list()
@@ -25,6 +28,16 @@ export function UsersPage() {
   const handleDelete = async (id: number) => {
     if (!confirm('Delete this user?')) return
     await usersApi.delete(id)
+    refetch()
+  }
+
+  const handlePasswordChange = async () => {
+    if (!editingUser || !newPassword) return
+    await usersApi.update(editingUser.id, { password: newPassword })
+    setEditingUser(null)
+    setNewPassword('')
+    setShowPassword(false)
+    alert('Password updated successfully')
     refetch()
   }
 
@@ -95,14 +108,24 @@ export function UsersPage() {
                     {new Date(user.created_at * 1000).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {user.id !== currentUser?.id && (
+                    <div className="flex items-center justify-end gap-1">
                       <button
-                        onClick={() => handleDelete(user.id)}
-                        className="p-1 rounded hover:bg-muted text-destructive"
+                        onClick={() => setEditingUser(user)}
+                        className="p-1.5 rounded hover:bg-muted"
+                        title="Change password"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Key className="w-4 h-4" />
                       </button>
-                    )}
+                      {user.id !== currentUser?.id && (
+                        <button
+                          onClick={() => handleDelete(user.id)}
+                          className="p-1.5 rounded hover:bg-muted text-destructive"
+                          title="Delete user"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -159,6 +182,58 @@ export function UsersPage() {
                 className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Password Modal */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md">
+            <h2 className="text-lg font-semibold mb-4">Change Password</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              User: <span className="font-medium text-foreground">{editingUser.username}</span>
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">New Password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full px-3 py-2 pr-10 rounded-lg bg-secondary border border-border"
+                    placeholder="Enter new password"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-muted"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => {
+                  setEditingUser(null)
+                  setNewPassword('')
+                  setShowPassword(false)
+                }}
+                className="px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePasswordChange}
+                disabled={!newPassword}
+                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                Update Password
               </button>
             </div>
           </div>
