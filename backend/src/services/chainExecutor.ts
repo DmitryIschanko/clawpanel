@@ -106,11 +106,14 @@ async function processChainExecution(runId: number): Promise<void> {
     
     try {
       // Send message to agent via Host Executor (avoids Gateway permission issues)
+      logger.info(`Chain ${runId}: Sending message to agent ${step.agentId}...`);
       const response = await sendMessageToAgent(step.agentId, prompt);
       
       step.output = response;
       step.status = 'completed';
       step.completedAt = Date.now();
+      
+      logger.info(`Chain ${runId}: Step ${i + 1} completed successfully`);
       
       // Update database
       updateRunProgress(runId, execution);
@@ -118,6 +121,7 @@ async function processChainExecution(runId: number): Promise<void> {
     } catch (error: any) {
       step.status = 'failed';
       step.output = `Error: ${error.message}`;
+      logger.error(`Chain ${runId}: Step ${i + 1} failed: ${error.message}`);
       throw error;
     }
     
