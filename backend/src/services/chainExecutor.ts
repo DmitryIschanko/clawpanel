@@ -1,6 +1,6 @@
 import { getDatabase } from '../database';
 import { logger } from '../utils/logger';
-import { gatewayService } from './gateway';
+import { sendMessageToAgent } from './agentRunner';
 import type { Chain, ChainRun } from '../types/database';
 
 interface ChainStep {
@@ -105,7 +105,7 @@ async function processChainExecution(runId: number): Promise<void> {
     let prompt = buildStepPrompt(step, task, steps, i);
     
     try {
-      // Send message to agent via Gateway
+      // Send message to agent via Host Executor (avoids Gateway permission issues)
       const response = await sendMessageToAgent(step.agentId, prompt);
       
       step.output = response;
@@ -165,33 +165,8 @@ function buildStepPrompt(
   return prompt;
 }
 
-async function sendMessageToAgent(agentId: number, message: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const agentName = `clawpanel-${agentId}`;
-    const timeout = setTimeout(() => {
-      reject(new Error('Agent response timeout (60s)'));
-    }, 60000);
-    
-    // Subscribe to response
-    const unsubscribe = gatewayService.subscribe('message', (data: any) => {
-      if (data.agentId === agentName || data.payload?.agentId === agentName) {
-        clearTimeout(timeout);
-        unsubscribe();
-        const text = data.payload?.text || data.text || JSON.stringify(data);
-        resolve(text);
-      }
-    });
-    
-    // Send message
-    try {
-      gatewayService.sendMessage(agentName, message);
-    } catch (error) {
-      clearTimeout(timeout);
-      unsubscribe();
-      reject(error);
-    }
-  });
-}
+// Use agentRunner's sendMessageToAgent which uses Host Executor
+// This avoids Gateway permission issues
 
 function updateRunProgress(runId: number, execution: ChainExecution): void {
   const db = getDatabase();
