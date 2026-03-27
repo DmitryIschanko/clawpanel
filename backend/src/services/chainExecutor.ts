@@ -78,6 +78,9 @@ export async function startChainExecution(
   
   executions.set(runId, execution);
   
+  // Create steps in database
+  createStepsInDb(runId, steps);
+  
   // Start execution
   processChainExecution(runId).catch(error => {
     logger.error(`Chain execution ${runId} failed:`, error);
@@ -85,6 +88,25 @@ export async function startChainExecution(
   });
   
   return { runId, execution };
+}
+
+function createStepsInDb(runId: number, steps: ChainStep[]): void {
+  const db = getDatabase();
+  const insert = db.prepare(`
+    INSERT INTO chain_steps (run_id, step_order, agent_id, agent_name, status, started_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  
+  steps.forEach((step, index) => {
+    insert.run(
+      runId,
+      index,
+      step.agentId,
+      `Agent ${step.agentId}`,
+      step.status,
+      step.startedAt ? Math.floor(step.startedAt / 1000) : null
+    );
+  });
 }
 
 async function processChainExecution(runId: number): Promise<void> {
@@ -101,26 +123,47 @@ async function processChainExecution(runId: number): Promise<void> {
     
     logger.info(`Chain ${runId}: Executing step ${i + 1}/${steps.length} with agent ${step.agentId}`);
     
-    // Build prompt for this step
-    let prompt = buildStepPrompt(step, task, steps, i);
+    // Build prompt for this step (получаем контекст из БД)
+    let prompt = await buildStepPromptFromDb(runId, step, task, i);
+    
+    // Update step status to running in DB
+    updateStepInDb(runId, i, { status: 'running', input: prompt });
     
     try {
-      // Send message to agent via Host Executor (avoids Gateway permission issues)
+      // Send message to agent via Host Executor
       logger.info(`Chain ${runId}: Sending message to agent ${step.agentId}...`);
       const response = await sendMessageToAgent(step.agentId, prompt);
       
-      step.output = response;
+      // Парсим ответ для получения чистого текста
+      const cleanOutput = parseAgentOutput(response);
+      
+      step.output = cleanOutput;
       step.status = 'completed';
       step.completedAt = Date.now();
       
       logger.info(`Chain ${runId}: Step ${i + 1} completed successfully`);
       
-      // Update database
+      // Update step in database with clean output
+      updateStepInDb(runId, i, { 
+        status: 'completed', 
+        output: cleanOutput,
+        completedAt: Math.floor(Date.now() / 1000)
+      });
+      
+      // Update run progress
       updateRunProgress(runId, execution);
       
     } catch (error: any) {
       step.status = 'failed';
       step.output = `Error: ${error.message}`;
+      step.completedAt = Date.now();
+      
+      updateStepInDb(runId, i, { 
+        status: 'failed', 
+        error: error.message,
+        completedAt: Math.floor(Date.now() / 1000)
+      });
+      
       logger.error(`Chain ${runId}: Step ${i + 1} failed: ${error.message}`);
       throw error;
     }
@@ -129,6 +172,11 @@ async function processChainExecution(runId: number): Promise<void> {
     if (i < steps.length - 1) {
       steps[i + 1].status = 'running';
       steps[i + 1].startedAt = Date.now();
+      
+      updateStepInDb(runId, i + 1, { 
+        status: 'running',
+        startedAt: Math.floor(Date.now() / 1000)
+      });
     }
   }
   
@@ -138,39 +186,156 @@ async function processChainExecution(runId: number): Promise<void> {
   completeExecution(runId, execution);
 }
 
-function buildStepPrompt(
-  step: ChainStep,
+interface StepUpdate {
+  status?: string;
+  input?: string;
+  output?: string;
+  error?: string;
+  completedAt?: number;
+  startedAt?: number;
+}
+
+function updateStepInDb(runId: number, stepOrder: number, update: StepUpdate): void {
+  const db = getDatabase();
+  
+  const fields: string[] = [];
+  const values: any[] = [];
+  
+  if (update.status !== undefined) {
+    fields.push('status = ?');
+    values.push(update.status);
+  }
+  if (update.input !== undefined) {
+    fields.push('input = ?');
+    values.push(update.input);
+  }
+  if (update.output !== undefined) {
+    fields.push('output = ?');
+    values.push(update.output);
+  }
+  if (update.error !== undefined) {
+    fields.push('error = ?');
+    values.push(update.error);
+  }
+  if (update.completedAt !== undefined) {
+    fields.push('completed_at = ?');
+    values.push(update.completedAt);
+  }
+  if (update.startedAt !== undefined) {
+    fields.push('started_at = ?');
+    values.push(update.startedAt);
+  }
+  
+  if (fields.length > 0) {
+    values.push(runId, stepOrder);
+    db.prepare(`
+      UPDATE chain_steps 
+      SET ${fields.join(', ')}
+      WHERE run_id = ? AND step_order = ?
+    `).run(...values);
+  }
+}
+
+// Интерфейс для ответа агента
+interface AgentResponse {
+  payloads?: Array<{ text?: string }>;
+  result?: {
+    payloads?: Array<{ text?: string }>;
+  };
+}
+
+// Парсим ответ агента и извлекаем чистый текст
+function parseAgentOutput(output: string | null): string {
+  if (!output) return '(no output)';
+  
+  // Если output уже чистый (не содержит Gateway ошибки), возвращаем как есть
+  if (!output.includes('gateway connect failed') && !output.includes('"payloads"')) {
+    return output;
+  }
+  
+  try {
+    // Ищем JSON в ответе (может быть после stderr)
+    // Ищем начало JSON объекта с payloads
+    const payloadsIndex = output.indexOf('"payloads"');
+    if (payloadsIndex === -1) return output;
+    
+    // Находим начало объекта {
+    let jsonStart = output.lastIndexOf('{', payloadsIndex);
+    if (jsonStart === -1) return output;
+    
+    const jsonStr = output.substring(jsonStart);
+    const response: AgentResponse = JSON.parse(jsonStr);
+    
+    // Извлекаем text из payloads
+    const payloads = response.payloads || response.result?.payloads;
+    if (payloads && payloads.length > 0 && payloads[0].text) {
+      return payloads[0].text;
+    }
+    
+    return output;
+  } catch (e) {
+    // Если не удалось распарсить, возвращаем как есть
+    return output;
+  }
+}
+
+// Получаем контекст из БД - все предыдущие шаги
+async function buildStepPromptFromDb(
+  runId: number,
+  currentStep: ChainStep,
   task: string,
-  steps: ChainStep[],
   currentIndex: number
-): string {
+): Promise<string> {
+  const db = getDatabase();
   let prompt = '';
   
   // First step gets the original task
   if (currentIndex === 0) {
     prompt = `Task: ${task}\n\n`;
-    if (step.instruction) {
-      prompt += `Your role: ${step.instruction}\n\n`;
+    if (currentStep.instruction) {
+      prompt += `Your role: ${currentStep.instruction}\n\n`;
     }
     prompt += 'Please complete this task.';
   } else {
-    // Subsequent steps get previous outputs
-    const previousStep = steps[currentIndex - 1];
+    // Получаем все предыдущие шаги из БД
+    const previousSteps = db.prepare(`
+      SELECT step_order, agent_id, output, status
+      FROM chain_steps
+      WHERE run_id = ? AND step_order < ?
+      ORDER BY step_order ASC
+    `).all(runId, currentIndex) as Array<{
+      step_order: number;
+      agent_id: number;
+      output: string | null;
+      status: string;
+    }>;
+    
     prompt = `You are step ${currentIndex + 1} in a workflow chain.\n\n`;
     prompt += `Original task: ${task}\n\n`;
-    prompt += `Previous agent (${previousStep.agentId}) produced:\n`;
-    prompt += `---\n${previousStep.output || '(no output)'}\n---\n\n`;
-    if (step.instruction) {
-      prompt += `Your role: ${step.instruction}\n\n`;
+    
+    // Добавляем контекст от всех предыдущих агентов
+    if (previousSteps.length > 0) {
+      prompt += `Previous agents output:\n`;
+      prompt += `---\n`;
+      
+      previousSteps.forEach(prevStep => {
+        prompt += `[Step ${prevStep.step_order + 1}] Agent ${prevStep.agent_id}:\n`;
+        // Парсим output чтобы получить чистый текст
+        const cleanOutput = parseAgentOutput(prevStep.output);
+        prompt += `${cleanOutput}\n\n`;
+      });
+      
+      prompt += `---\n\n`;
+    }
+    
+    if (currentStep.instruction) {
+      prompt += `Your role: ${currentStep.instruction}\n\n`;
     }
     prompt += 'Continue based on the previous work.';
   }
   
   return prompt;
 }
-
-// Use agentRunner's sendMessageToAgent which uses Host Executor
-// This avoids Gateway permission issues
 
 function updateRunProgress(runId: number, execution: ChainExecution): void {
   const db = getDatabase();
@@ -236,4 +401,14 @@ export function getChainRunHistory(chainId: number): any[] {
     ORDER BY started_at DESC 
     LIMIT 20
   `).all(chainId);
+}
+
+// Получить детали шагов из БД
+export function getChainSteps(runId: number): any[] {
+  const db = getDatabase();
+  return db.prepare(`
+    SELECT * FROM chain_steps 
+    WHERE run_id = ? 
+    ORDER BY step_order ASC
+  `).all(runId);
 }

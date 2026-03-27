@@ -91,7 +91,7 @@ const server = http.createServer(async (req, res) => {
       
       const { stdout, stderr } = await execAsync(command, { 
         env,
-        timeout: 30000,
+        timeout: 3600000, // 1 hour
         maxBuffer: 1024 * 1024 // 1MB
       });
       

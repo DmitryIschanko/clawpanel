@@ -20,7 +20,7 @@ export async function execOnHost(command: string, configPath?: string): Promise<
       token: HOST_EXECUTOR_TOKEN,
       configPath: configPath || '/root/.openclaw/openclaw.json'
     }, {
-      timeout: 30000,
+      timeout: 3600000,  // 1 hour
       headers: { 'Content-Type': 'application/json' }
     });
     

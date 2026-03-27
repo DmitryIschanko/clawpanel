@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import bcrypt from 'bcryptjs';
 import { authService } from '../services/auth';
 import { getDatabase } from '../database';
 import { authenticateToken, requireAdmin, AuthRequest } from '../middleware/auth';
@@ -73,7 +74,6 @@ router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'user'), 
   }
   
   if (password) {
-    const bcrypt = await import('bcryptjs');
     const hash = await bcrypt.hash(password, 10);
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.params.id);
   }
