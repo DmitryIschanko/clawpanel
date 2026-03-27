@@ -136,7 +136,8 @@ export const chainsApi = {
   create: (data: Partial<Chain>) => api.post('/chains', data),
   update: (id: number, data: Partial<Chain>) => api.put(`/chains/${id}`, data),
   delete: (id: number) => api.delete(`/chains/${id}`),
-  run: (id: number) => api.post(`/chains/${id}/run`),
+  run: (id: number, task: string) => api.post(`/chains/${id}/run`, { task }),
+  getRunStatus: (runId: number) => api.get(`/chains/runs/${runId}/status`),
 }
 
 // Channels API

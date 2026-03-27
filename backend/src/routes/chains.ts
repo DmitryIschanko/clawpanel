@@ -4,6 +4,7 @@ import { authenticateToken, requireAdmin } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { auditLog } from '../middleware/audit';
+import { startChainExecution, getExecutionStatus } from '../services/chainExecutor';
 import type { Chain, ChainRun } from '../types/database';
 
 const router = Router();
@@ -390,24 +391,91 @@ router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'chain
  *         description: Unauthorized
  */
 router.post('/:id/run', authenticateToken, asyncHandler(async (req, res) => {
+  const { task } = req.body;
+  
+  if (!task || typeof task !== 'string') {
+    throw new ValidationError('Task is required');
+  }
+  
   const db = getDatabase();
-  const chain = db.prepare('SELECT * FROM chains WHERE id = ?').get(req.params.id);
+  const chain = db.prepare('SELECT * FROM chains WHERE id = ?').get(req.params.id) as Chain | undefined;
   
   if (!chain) {
     throw new NotFoundError('Chain not found');
   }
   
-  // Create run record
-  const result = db.prepare(`
-    INSERT INTO chain_runs (chain_id, status, started_at)
-    VALUES (?, 'running', unixepoch())
-  `).run(req.params.id);
-  
-  // In a real implementation, this would trigger the chain execution
+  // Start chain execution
+  const { runId, execution } = await startChainExecution(parseInt(req.params.id), task);
   
   res.json({
     success: true,
-    data: { runId: result.lastInsertRowid },
+    data: { 
+      runId,
+      status: execution.status,
+      steps: execution.steps.length,
+    },
+  });
+}));
+
+/**
+ * @swagger
+ * /chains/runs/{runId}/status:
+ *   get:
+ *     summary: Get chain execution status
+ *     description: Get current status and progress of a running chain
+ *     tags: [Chains]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: runId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Execution status
+ *       404:
+ *         description: Run not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/runs/:runId/status', authenticateToken, asyncHandler(async (req, res) => {
+  const execution = getExecutionStatus(parseInt(req.params.runId));
+  
+  if (!execution) {
+    // Check if completed in database
+    const db = getDatabase();
+    const run = db.prepare('SELECT * FROM chain_runs WHERE id = ?').get(req.params.runId) as ChainRun | undefined;
+    
+    if (!run) {
+      throw new NotFoundError('Run not found');
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        status: run.status,
+        output: run.output ? JSON.parse(run.output) : null,
+        completed: true,
+      },
+    });
+    return;
+  }
+  
+  res.json({
+    success: true,
+    data: {
+      status: execution.status,
+      currentStep: execution.currentStep,
+      totalSteps: execution.steps.length,
+      steps: execution.steps.map(s => ({
+        agentId: s.agentId,
+        status: s.status,
+        output: s.output,
+      })),
+      completed: false,
+    },
   });
 }));
 

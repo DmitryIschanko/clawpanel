@@ -1,12 +1,26 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from 'react-query'
 import { Plus, Workflow, Play, Trash2, Edit, Loader2, Save, X } from 'lucide-react'
 import { chainsApi, agentsApi } from '../services/api'
 import type { Chain, ChainNode, ChainEdge, Agent } from '../types'
 
+interface RunningChain {
+  chainId: number;
+  runId: number;
+  task: string;
+  status: 'running' | 'completed' | 'failed';
+  currentStep: number;
+  totalSteps: number;
+  steps?: Array<{ agentId: number; status: string; output?: string }>;
+}
+
 export function ChainsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [editingChain, setEditingChain] = useState<Chain | null>(null)
+  const [runningChain, setRunningChain] = useState<RunningChain | null>(null)
+  const [isRunModalOpen, setIsRunModalOpen] = useState(false)
+  const [selectedChainId, setSelectedChainId] = useState<number | null>(null)
+  const [taskInput, setTaskInput] = useState('')
   
   const { data: chains, isLoading, refetch } = useQuery<Chain[]>(
     'chains',
@@ -16,9 +30,60 @@ export function ChainsPage() {
     }
   )
 
-  const handleRun = async (id: number) => {
-    await chainsApi.run(id)
-    refetch()
+  // Poll for execution status
+  useEffect(() => {
+    if (!runningChain || runningChain.status !== 'running') return
+    
+    const interval = setInterval(async () => {
+      try {
+        const response = await chainsApi.getRunStatus(runningChain.runId)
+        const data = response.data.data
+        
+        if (data.completed) {
+          setRunningChain(prev => prev ? { ...prev, status: data.status, steps: data.output?.steps } : null)
+          clearInterval(interval)
+        } else {
+          setRunningChain(prev => prev ? {
+            ...prev,
+            currentStep: data.currentStep,
+            totalSteps: data.totalSteps,
+            steps: data.steps,
+          } : null)
+        }
+      } catch (error) {
+        console.error('Failed to get status:', error)
+      }
+    }, 2000)
+    
+    return () => clearInterval(interval)
+  }, [runningChain?.runId, runningChain?.status])
+
+  const handleRunClick = (id: number) => {
+    setSelectedChainId(id)
+    setTaskInput('')
+    setIsRunModalOpen(true)
+  }
+
+  const handleRunSubmit = async () => {
+    if (!selectedChainId || !taskInput.trim()) return
+    
+    try {
+      const response = await chainsApi.run(selectedChainId, taskInput.trim())
+      const { runId, steps } = response.data.data
+      
+      setRunningChain({
+        chainId: selectedChainId,
+        runId,
+        task: taskInput,
+        status: 'running',
+        currentStep: 0,
+        totalSteps: steps,
+      })
+      
+      setIsRunModalOpen(false)
+    } catch (error) {
+      alert('Failed to start chain')
+    }
   }
 
   const handleDelete = async (id: number) => {
@@ -71,7 +136,7 @@ export function ChainsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => handleRun(chain.id)}
+                    onClick={() => handleRunClick(chain.id)}
                     className="p-2 rounded-lg hover:bg-muted"
                     title="Run chain"
                   >
@@ -116,6 +181,114 @@ export function ChainsPage() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Running Chain Progress */}
+      {runningChain && (
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold">Running: {runningChain.task}</h3>
+              <p className="text-sm text-muted-foreground">
+                Step {runningChain.currentStep + 1} of {runningChain.totalSteps}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {runningChain.status === 'running' ? (
+                <Loader2 className="w-5 h-5 animate-spin text-primary" />
+              ) : runningChain.status === 'completed' ? (
+                <span className="text-green-500">✓ Completed</span>
+              ) : (
+                <span className="text-destructive">✗ Failed</span>
+              )}
+              <button
+                onClick={() => setRunningChain(null)}
+                className="p-1 rounded hover:bg-muted"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          
+          {/* Progress bar */}
+          <div className="w-full bg-muted rounded-full h-2 mb-4">
+            <div
+              className="bg-primary h-2 rounded-full transition-all"
+              style={{ width: `${((runningChain.currentStep + (runningChain.status === 'completed' ? 1 : 0)) / runningChain.totalSteps) * 100}%` }}
+            />
+          </div>
+          
+          {/* Steps */}
+          {runningChain.steps && (
+            <div className="space-y-2">
+              {runningChain.steps.map((step, idx) => (
+                <div key={idx} className={`p-3 rounded-lg ${idx === runningChain.currentStep && runningChain.status === 'running' ? 'bg-primary/10 border border-primary/30' : 'bg-muted'}`}>
+                  <div className="flex items-center gap-2">
+                    {step.status === 'completed' ? (
+                      <span className="text-green-500">✓</span>
+                    ) : step.status === 'running' ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <span className="text-muted-foreground">○</span>
+                    )}
+                    <span className="font-medium">Agent {step.agentId}</span>
+                    <span className="text-sm text-muted-foreground">({step.status})</span>
+                  </div>
+                  {step.output && (
+                    <pre className="mt-2 text-sm text-muted-foreground bg-background p-2 rounded overflow-auto max-h-32">
+                      {step.output}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Run Modal */}
+      {isRunModalOpen && selectedChainId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Run Chain</h2>
+              <button onClick={() => setIsRunModalOpen(false)} className="p-1 rounded hover:bg-muted">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Task Description</label>
+                <textarea
+                  value={taskInput}
+                  onChange={(e) => setTaskInput(e.target.value)}
+                  rows={4}
+                  className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
+                  placeholder="Describe what you want to accomplish...&#10;Example: Write a Python calculator with percentage support"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6">
+              <button 
+                onClick={() => setIsRunModalOpen(false)} 
+                className="px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRunSubmit}
+                disabled={!taskInput.trim()}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                <Play className="w-4 h-4" />
+                Run Chain
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
