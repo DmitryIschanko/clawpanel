@@ -310,28 +310,19 @@ async function buildStepPromptFromDb(
       status: string;
     }>;
     
-    prompt = `You are step ${currentIndex + 1} in a workflow chain.\n\n`;
-    prompt += `Original task: ${task}\n\n`;
-    
-    // Добавляем контекст от всех предыдущих агентов
+    // Добавляем контекст от предыдущего агента первым (важно!)
     if (previousSteps.length > 0) {
-      prompt += `Previous agents output:\n`;
-      prompt += `---\n`;
+      const lastStep = previousSteps[previousSteps.length - 1];
+      const cleanOutput = parseAgentOutput(lastStep.output);
       
-      previousSteps.forEach(prevStep => {
-        prompt += `[Step ${prevStep.step_order + 1}] Agent ${prevStep.agent_id}:\n`;
-        // Парсим output чтобы получить чистый текст
-        const cleanOutput = parseAgentOutput(prevStep.output);
-        prompt += `${cleanOutput}\n\n`;
-      });
-      
-      prompt += `---\n\n`;
+      // Формат для ревьюера - убираем markdown блоки
+      const codeWithoutMarkdown = cleanOutput
+        .replace(/```\w*\n/g, '')
+        .replace(/```\n?/g, '');
+      prompt += `Code to review:\n${codeWithoutMarkdown}\n\n`;
     }
     
-    if (currentStep.instruction) {
-      prompt += `Your role: ${currentStep.instruction}\n\n`;
-    }
-    prompt += 'Continue based on the previous work.';
+    prompt += `${currentStep.instruction || task}`;
   }
   
   return prompt;

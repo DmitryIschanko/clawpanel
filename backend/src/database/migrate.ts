@@ -96,7 +96,6 @@ const migrations = [
     FOREIGN KEY (chain_id) REFERENCES chains(id) ON DELETE CASCADE
   );
 
-  // Chain steps table - stores individual step results
   CREATE TABLE IF NOT EXISTS chain_steps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL,
