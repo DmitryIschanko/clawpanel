@@ -521,6 +521,103 @@ docker compose build --no-cache backend
 docker compose up -d backend
 ```
 
+## Chain Execution (Цепочки агентов)
+
+Мульти-агентные цепочки позволяют создавать пайплайны: разработка → код-ревью → исправление.
+
+### Архитектура цепочек
+
+```
+Пользовательский запрос
+        │
+        ▼
+┌───────────────┐     ┌───────────────┐     ┌───────────────┐
+│   Step 1      │────▶│   Step 2      │────▶│   Step 3      │
+│  Developer    │     │   Reviewer    │     │  Developer    │
+│  Agent #1     │     │   Agent #26   │     │  Agent #1     │
+└───────────────┘     └───────────────┘     └───────────────┘
+       │                      │                      │
+       ▼                      ▼                      ▼
+   chain_steps             chain_steps            chain_steps
+   (output saved)          (output saved)         (output saved)
+```
+
+### Таблицы БД
+
+```sql
+-- Хранение результатов каждого шага
+CREATE TABLE chain_steps (
+  id INTEGER PRIMARY KEY,
+  run_id INTEGER,           -- FK to chain_runs
+  step_order INTEGER,       -- Порядковый номер шага
+  agent_id INTEGER,         -- ID агента
+  input TEXT,               -- Промпт (с контекстом от предыдущих шагов)
+  output TEXT,              -- Ответ агента
+  status TEXT,              -- pending|running|completed|error
+  started_at INTEGER,
+  completed_at INTEGER
+);
+```
+
+### Как работает передача контекста
+
+```typescript
+// Каждый шаг получает вывод ВСЕХ предыдущих шагов
+async function buildStepPrompt(runId, currentStep, currentIndex) {
+  const previousSteps = db.query(
+    'SELECT output FROM chain_steps WHERE run_id = ? AND step_order < ?'
+  );
+  
+  let prompt = '';
+  previousSteps.forEach(step => {
+    const cleanOutput = parseAgentOutput(step.output);
+    prompt += `Previous output:\n${cleanOutput}\n\n`;
+  });
+  
+  prompt += currentStep.instruction;
+  return prompt;
+}
+```
+
+### Пример цепочки из 3 агентов
+
+```json
+[
+  {
+    "id": "step1",
+    "agentId": 1,
+    "instruction": "Напиши функцию факториала на Python"
+  },
+  {
+    "id": "step2", 
+    "agentId": 26,
+    "instruction": "Проверь код на ошибки и стиль"
+  },
+  {
+    "id": "step3",
+    "agentId": 1,
+    "instruction": "Исправь код по рекомендациям"
+  }
+]
+```
+
+### Парсинг ответа агента
+
+Агенты возвращают JSON с `payloads`, нужно извлечь чистый текст:
+
+```typescript
+function parseAgentOutput(output: string): string {
+  if (!output.includes('"payloads"')) return output;
+  
+  const jsonMatch = output.match(/\{[\s\S]*"payloads"[\s\S]*\}/);
+  if (jsonMatch) {
+    const response = JSON.parse(jsonMatch[0]);
+    return response.payloads[0]?.text || output;
+  }
+  return output;
+}
+```
+
 ## Распространенные проблемы
 
 ### "Host Executor unavailable"
