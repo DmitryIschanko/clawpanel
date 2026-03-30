@@ -100,11 +100,18 @@ export interface User {
 export interface MCPServer {
   id: number;
   name: string;
-  url: string;
+  url: string | null;  // For HTTP transport
   auth_type: 'none' | 'api_key' | 'bearer' | 'basic';
   auth_config: string | null; // JSON string
   enabled: number;
   config_json: string | null;
+  // MCP v2 fields for OpenClaw mcporter
+  transport_type: 'stdio' | 'http' | 'websocket';
+  command: string | null;  // For stdio transport (e.g., 'npx', 'python', 'node')
+  args: string | null;  // JSON array of arguments
+  env: string | null;  // JSON object for environment variables
+  description: string | null;
+  is_builtin: number;  // 1 = built-in MCP servers (filesystem, etc.)
   created_at: number;
   updated_at: number;
 }

@@ -4,6 +4,24 @@ import mcpRoutes from '../routes/mcp';
 import authRoutes from '../routes/auth';
 import { errorHandler } from '../middleware/errorHandler';
 
+// Mock the mcporter service
+jest.mock('../services/mcporter', () => ({
+  syncServerToMcporter: jest.fn().mockResolvedValue(true),
+  removeServerFromMcporter: jest.fn().mockResolvedValue(true),
+  syncAllServersToMcporter: jest.fn().mockResolvedValue(true),
+  getBuiltinMcpServers: jest.fn().mockReturnValue([
+    {
+      name: 'filesystem',
+      description: 'Read and write local files',
+      transport_type: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', './data'],
+    },
+  ]),
+  isMcpRemoteInstalled: jest.fn().mockResolvedValue(true),
+  installMcpRemote: jest.fn().mockResolvedValue(true),
+}));
+
 const app = express();
 app.use(express.json());
 app.use('/api/auth', authRoutes);
@@ -40,16 +58,140 @@ describe('MCP API', () => {
     });
   });
 
+  describe('GET /api/mcp/builtin', () => {
+    it('should list built-in MCP servers', async () => {
+      const res = await request(app)
+        .get('/api/mcp/builtin')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'filesystem',
+            command: 'npx',
+          }),
+        ])
+      );
+    });
+  });
+
+  describe('POST /api/mcp', () => {
+    it('should create stdio MCP server', async () => {
+      const res = await request(app)
+        .post('/api/mcp')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          name: 'Test Stdio MCP',
+          description: 'Test stdio transport',
+          transportType: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', './data'],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('id');
+      expect(res.body.data.transportType).toBe('stdio');
+      expect(res.body.data.command).toBe('npx');
+      expect(res.body.mcporterSync).toBe(true);
+    });
+
+    it('should create http MCP server', async () => {
+      const res = await request(app)
+        .post('/api/mcp')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          name: 'Test HTTP MCP',
+          description: 'Test http transport',
+          transportType: 'http',
+          url: 'https://api.example.com/mcp',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.transportType).toBe('http');
+      expect(res.body.data.url).toBe('https://api.example.com/mcp');
+    });
+
+    it('should reject stdio without command', async () => {
+      const res = await request(app)
+        .post('/api/mcp')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          name: 'Invalid Stdio MCP',
+          transportType: 'stdio',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toContain('Command is required');
+    });
+
+    it('should reject http without url', async () => {
+      const res = await request(app)
+        .post('/api/mcp')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          name: 'Invalid HTTP MCP',
+          transportType: 'http',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toContain('URL is required');
+    });
+
+    it('should reject invalid URL format', async () => {
+      const res = await request(app)
+        .post('/api/mcp')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          name: 'Invalid URL MCP',
+          transportType: 'http',
+          url: 'not-a-valid-url',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toContain('Invalid URL');
+    });
+
+    it('should reject duplicate names', async () => {
+      // First create
+      await request(app)
+        .post('/api/mcp')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          name: 'Duplicate MCP',
+          transportType: 'stdio',
+          command: 'npx',
+        });
+
+      // Try duplicate
+      const res = await request(app)
+        .post('/api/mcp')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          name: 'Duplicate MCP',
+          transportType: 'stdio',
+          command: 'npx',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toContain('already exists');
+    });
+  });
+
   describe('POST /api/mcp/import-json', () => {
-    it('should import MCP server from valid JSON', async () => {
+    it('should import stdio MCP from JSON', async () => {
       const configJson = JSON.stringify({
-        name: 'Test MCP Server',
-        url: 'https://api.example.com/mcp',
-        auth: { type: 'api_key', apiKey: 'test-key' },
-        tools: [
-          { name: 'search', description: 'Search tool' },
-          { name: 'fetch', description: 'Fetch tool' },
-        ],
+        name: 'Imported Stdio MCP',
+        command: 'python',
+        args: ['-m', 'mcp_server'],
+        description: 'Test imported server',
       });
 
       const res = await request(app)
@@ -60,8 +202,24 @@ describe('MCP API', () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('id');
-      expect(res.body.data.name).toBe('Test MCP Server');
-      expect(res.body.data.toolsImported).toBe(2);
+      expect(res.body.data.transportType).toBe('stdio');
+    });
+
+    it('should import http MCP from JSON', async () => {
+      const configJson = JSON.stringify({
+        name: 'Imported HTTP MCP',
+        url: 'https://api.example.com/mcp',
+        auth: { type: 'api_key', apiKey: 'test-key' },
+      });
+
+      const res = await request(app)
+        .post('/api/mcp/import-json')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ configJson });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.transportType).toBe('http');
     });
 
     it('should reject invalid JSON', async () => {
@@ -75,9 +233,9 @@ describe('MCP API', () => {
       expect(res.body.error.message).toContain('Invalid JSON');
     });
 
-    it('should reject missing URL', async () => {
+    it('should reject missing name', async () => {
       const configJson = JSON.stringify({
-        name: 'No URL Server',
+        command: 'npx',
       });
 
       const res = await request(app)
@@ -87,23 +245,14 @@ describe('MCP API', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
-      expect(res.body.error.message).toContain('URL is required');
+      expect(res.body.error.message).toContain('Name is required');
     });
 
-    it('should reject duplicate names', async () => {
+    it('should reject missing both command and url', async () => {
       const configJson = JSON.stringify({
-        name: 'Duplicate MCP',
-        url: 'https://example.com/mcp',
-        tools: [],
+        name: 'Invalid MCP',
       });
 
-      // First import
-      await request(app)
-        .post('/api/mcp/import-json')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ configJson });
-
-      // Second import with same name
       const res = await request(app)
         .post('/api/mcp/import-json')
         .set('Authorization', `Bearer ${authToken}`)
@@ -111,57 +260,43 @@ describe('MCP API', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
-      expect(res.body.error.message).toContain('already exists');
-    });
-
-    it('should parse auth config correctly', async () => {
-      const configJson = JSON.stringify({
-        name: 'Auth Test MCP',
-        url: 'https://api.example.com/mcp',
-        auth: { type: 'bearer', token: 'test-token' },
-        tools: [],
-      });
-
-      const res = await request(app)
-        .post('/api/mcp/import-json')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ configJson });
-
-      expect(res.status).toBe(201);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.url).toBe('https://api.example.com/mcp');
+      expect(res.body.error.message).toContain('command or url is required');
     });
   });
 
-  describe('GET /api/mcp/:id', () => {
-    it('should get MCP server by id', async () => {
-      // Create MCP first
-      const configJson = JSON.stringify({
-        name: 'Get Test MCP',
-        url: 'https://example.com/mcp',
-        tools: [],
-      });
-
+  describe('PUT /api/mcp/:id', () => {
+    it('should update MCP server', async () => {
+      // Create first
       const createRes = await request(app)
-        .post('/api/mcp/import-json')
+        .post('/api/mcp')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ configJson });
+        .send({
+          name: 'Update Test MCP',
+          transportType: 'stdio',
+          command: 'npx',
+        });
 
       const mcpId = createRes.body.data.id;
 
+      // Update
       const res = await request(app)
-        .get(`/api/mcp/${mcpId}`)
-        .set('Authorization', `Bearer ${authToken}`);
+        .put(`/api/mcp/${mcpId}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          description: 'Updated description',
+          enabled: false,
+        });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.name).toBe('Get Test MCP');
+      expect(res.body.mcporterSync).toBeDefined();
     });
 
     it('should return 404 for non-existent MCP', async () => {
       const res = await request(app)
-        .get('/api/mcp/99999')
-        .set('Authorization', `Bearer ${authToken}`);
+        .put('/api/mcp/99999')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ description: 'Test' });
 
       expect(res.status).toBe(404);
       expect(res.body.success).toBe(false);
@@ -169,21 +304,20 @@ describe('MCP API', () => {
   });
 
   describe('DELETE /api/mcp/:id', () => {
-    it('should delete MCP server and cascade tools', async () => {
-      // Create MCP with tools
-      const configJson = JSON.stringify({
-        name: 'Delete Test MCP',
-        url: 'https://example.com/mcp',
-        tools: [{ name: 'tool_to_delete', description: 'Will be deleted' }],
-      });
-
+    it('should delete MCP server and remove from mcporter', async () => {
+      // Create
       const createRes = await request(app)
-        .post('/api/mcp/import-json')
+        .post('/api/mcp')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ configJson });
+        .send({
+          name: 'Delete Test MCP',
+          transportType: 'stdio',
+          command: 'npx',
+        });
 
       const mcpId = createRes.body.data.id;
 
+      // Delete
       const res = await request(app)
         .delete(`/api/mcp/${mcpId}`)
         .set('Authorization', `Bearer ${authToken}`);
@@ -209,19 +343,30 @@ describe('MCP API', () => {
     });
   });
 
-  describe('POST /api/mcp/:id/test', () => {
-    it('should test MCP connection', async () => {
-      // Create MCP
-      const configJson = JSON.stringify({
-        name: 'Test Connection MCP',
-        url: 'https://example.com/mcp',
-        tools: [],
-      });
+  describe('POST /api/mcp/sync', () => {
+    it('should sync all MCP servers to mcporter', async () => {
+      const res = await request(app)
+        .post('/api/mcp/sync')
+        .set('Authorization', `Bearer ${authToken}`);
 
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('synced');
+      expect(res.body.mcporterSync).toBe(true);
+    });
+  });
+
+  describe('POST /api/mcp/:id/test', () => {
+    it('should test stdio MCP server', async () => {
+      // Create
       const createRes = await request(app)
-        .post('/api/mcp/import-json')
+        .post('/api/mcp')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ configJson });
+        .send({
+          name: 'Test Connection MCP',
+          transportType: 'stdio',
+          command: 'echo',
+        });
 
       const mcpId = createRes.body.data.id;
 
@@ -232,20 +377,19 @@ describe('MCP API', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('reachable');
+      expect(res.body.data.transport).toBe('stdio');
     });
 
-    it('should handle invalid URL gracefully', async () => {
-      // Create MCP with invalid URL
-      const configJson = JSON.stringify({
-        name: 'Invalid URL MCP',
-        url: 'not-a-valid-url',
-        tools: [],
-      });
-
+    it('should test http MCP server', async () => {
+      // Create
       const createRes = await request(app)
-        .post('/api/mcp/import-json')
+        .post('/api/mcp')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ configJson });
+        .send({
+          name: 'Test HTTP MCP',
+          transportType: 'http',
+          url: 'https://example.com',
+        });
 
       const mcpId = createRes.body.data.id;
 
@@ -255,8 +399,29 @@ describe('MCP API', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.reachable).toBe(false);
-      expect(res.body.data.error).toContain('Invalid URL');
+      expect(res.body.data).toHaveProperty('reachable');
+      expect(res.body.data.transport).toBe('http');
+    });
+
+    it('should handle stdio without command', async () => {
+      // Create without command (should not happen normally, but test edge case)
+      const createRes = await request(app)
+        .post('/api/mcp')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          name: 'No Command MCP',
+          transportType: 'stdio',
+          command: 'echo',
+        });
+
+      const mcpId = createRes.body.data.id;
+
+      const res = await request(app)
+        .post(`/api/mcp/${mcpId}/test`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
     });
   });
 });

@@ -11,7 +11,7 @@ interface RunningChain {
   status: 'running' | 'completed' | 'failed';
   currentStep: number;
   totalSteps: number;
-  steps?: Array<{ agentId: number; status: string; output?: string }>;
+  steps?: Array<{ agentId: number; status: string; output?: string; historyMode?: 'last-only' | 'full-history' | 'smart' }>;
 }
 
 interface ChainRun {
@@ -250,6 +250,11 @@ export function ChainsPage() {
                       <span className="text-muted-foreground">○</span>
                     )}
                     <span className="font-medium">Agent {step.agentId}</span>
+                      {step.historyMode && step.historyMode !== 'last-only' && (
+                        <span className="ml-2 text-xs bg-primary/20 text-primary px-2 py-0.5 rounded">
+                          {step.historyMode === 'smart' ? '🧠 Smart' : '📚 Full History'}
+                        </span>
+                      )}
                     <span className="text-sm text-muted-foreground">({step.status})</span>
                   </div>
                   {step.output && (
@@ -369,7 +374,7 @@ function ChainModal({
     triggers: chain?.triggers || [],
     enabled: chain?.enabled ?? true,
   })
-  const [newStep, setNewStep] = useState({ agentId: '', instruction: '' })
+  const [newStep, setNewStep] = useState<{ agentId: string; instruction: string; historyMode: 'last-only' | 'full-history' | 'smart' }>({ agentId: '', instruction: '', historyMode: 'last-only' })
   
   // Load agents for dropdown
   const { data: agents, isLoading: agentsLoading } = useQuery<Agent[]>(
@@ -390,13 +395,14 @@ function ChainModal({
         agentId: parseInt(newStep.agentId),
         instruction: newStep.instruction,
         outputMode: 'full',
+        historyMode: newStep.historyMode || 'last-only',
       },
     }
     setFormData({
       ...formData,
       nodes: [...(formData.nodes || []), node],
     })
-    setNewStep({ agentId: '', instruction: '' })
+    setNewStep({ agentId: '', instruction: '', historyMode: 'last-only' })
   }
 
   const removeStep = (index: number) => {
@@ -482,6 +488,16 @@ function ChainModal({
                 onChange={(e) => setNewStep({ ...newStep, instruction: e.target.value })}
                 className="flex-1 px-3 py-2 rounded-lg bg-secondary border border-border"
               />
+              <select
+                value={newStep.historyMode}
+                onChange={(e) => setNewStep({ ...newStep, historyMode: e.target.value as any })}
+                className="px-3 py-2 rounded-lg bg-secondary border border-border text-sm min-w-[120px]"
+                title="History mode"
+              >
+                <option value="last-only">Last Only</option>
+                <option value="full-history">Full History</option>
+                <option value="smart">Smart</option>
+              </select>
               <button 
                 onClick={addStep} 
                 disabled={!newStep.agentId}

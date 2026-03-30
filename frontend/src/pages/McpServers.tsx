@@ -1,23 +1,60 @@
 import { useState } from 'react'
 import { useQuery } from 'react-query'
-import { Plus, Server, Trash2, Loader2, CheckCircle2, XCircle, ExternalLink, RefreshCw, FileJson } from 'lucide-react'
+import { 
+  Plus, 
+  Server, 
+  Trash2, 
+  Loader2, 
+  CheckCircle2, 
+  XCircle, 
+  RefreshCw, 
+  FileJson, 
+  Terminal, 
+  Globe,
+  Settings,
+  Package,
+  AlertCircle,
+} from 'lucide-react'
 import { mcpApi } from '../services/api'
+import type { McpServer } from '../types'
+import { McpGuide } from '../components/McpGuide'
 
-interface McpServer {
-  id: number
+interface BuiltinServer {
   name: string
-  url: string
-  authType: string
-  enabled: boolean
-  createdAt: number
+  description: string
+  transport_type: 'stdio'
+  command: string
+  args: string[]
+  installCommand?: string
 }
 
 export function McpServersPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
+  const [isBuiltinModalOpen, setIsBuiltinModalOpen] = useState(false)
   const [importJson, setImportJson] = useState('')
   const [isImporting, setIsImporting] = useState(false)
-  const [newServer, setNewServer] = useState({ name: '', url: '', authType: 'none' })
+  const [isSyncing, setIsSyncing] = useState(false)
+  
+  // Form state
+  const [newServer, setNewServer] = useState<{
+    name: string
+    description: string
+    transportType: 'stdio' | 'http' | 'websocket'
+    command: string
+    args: string
+    url: string
+    env: string
+  }>({
+    name: '',
+    description: '',
+    transportType: 'stdio',
+    command: '',
+    args: '',
+    url: '',
+    env: '',
+  })
+  
   const [testingId, setTestingId] = useState<number | null>(null)
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({})
   
@@ -26,15 +63,79 @@ export function McpServersPage() {
     return response.data.data
   })
 
+  const { data: builtinServers } = useQuery<BuiltinServer[]>('mcp-builtin', async () => {
+    const response = await mcpApi.getBuiltin()
+    return response.data.data
+  }, {
+    enabled: isBuiltinModalOpen,
+  })
+
   const handleCreate = async () => {
-    if (!newServer.name || !newServer.url) return
+    if (!newServer.name) return
+    
+    // Validation
+    if (newServer.transportType === 'stdio' && !newServer.command) {
+      alert('Command is required for stdio transport')
+      return
+    }
+    if (newServer.transportType === 'http' && !newServer.url) {
+      alert('URL is required for http transport')
+      return
+    }
+    
     try {
-      await mcpApi.create(newServer)
+      const payload: any = {
+        name: newServer.name,
+        description: newServer.description,
+        transportType: newServer.transportType,
+      }
+      
+      if (newServer.transportType === 'stdio') {
+        payload.command = newServer.command
+        payload.args = newServer.args ? newServer.args.split(' ').filter(a => a.trim()) : []
+      } else if (newServer.transportType === 'http') {
+        payload.url = newServer.url
+      }
+      
+      if (newServer.env) {
+        try {
+          payload.env = JSON.parse(newServer.env)
+        } catch {
+          alert('Invalid JSON in Environment Variables field')
+          return
+        }
+      }
+      
+      await mcpApi.create(payload)
       setIsCreateModalOpen(false)
-      setNewServer({ name: '', url: '', authType: 'none' })
+      setNewServer({
+        name: '',
+        description: '',
+        transportType: 'stdio',
+        command: '',
+        args: '',
+        url: '',
+        env: '',
+      })
       refetch()
-    } catch (error) {
-      alert('Failed to create MCP server')
+    } catch (error: any) {
+      alert('Failed to create MCP server: ' + (error.response?.data?.error?.message || error.message))
+    }
+  }
+
+  const handleInstallBuiltin = async (server: BuiltinServer) => {
+    try {
+      await mcpApi.create({
+        name: server.name,
+        description: server.description,
+        transportType: 'stdio',
+        command: server.command,
+        args: server.args,
+      })
+      setIsBuiltinModalOpen(false)
+      refetch()
+    } catch (error: any) {
+      alert('Failed to install: ' + (error.response?.data?.error?.message || error.message))
     }
   }
 
@@ -61,9 +162,21 @@ export function McpServersPage() {
       setImportJson('')
       refetch()
     } catch (error: any) {
-      alert('Failed to import: ' + (error.response?.data?.error || error.message))
+      alert('Failed to import: ' + (error.response?.data?.error?.message || error.message))
     } finally {
       setIsImporting(false)
+    }
+  }
+
+  const handleSync = async () => {
+    setIsSyncing(true)
+    try {
+      await mcpApi.sync()
+      alert('MCP servers synced to OpenClaw successfully')
+    } catch (error) {
+      alert('Failed to sync MCP servers')
+    } finally {
+      setIsSyncing(false)
     }
   }
 
@@ -98,6 +211,17 @@ export function McpServersPage() {
     }
   }
 
+  const getTransportIcon = (type: string) => {
+    switch (type) {
+      case 'stdio':
+        return <Terminal className="w-4 h-4" />
+      case 'http':
+        return <Globe className="w-4 h-4" />
+      default:
+        return <Server className="w-4 h-4" />
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -111,18 +235,31 @@ export function McpServersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">MCP Servers</h1>
-          <p className="text-muted-foreground">Manage Model Context Protocol endpoints</p>
+          <p className="text-muted-foreground">
+            Manage Model Context Protocol servers for OpenClaw
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <a
-            href="https://www.pulsemcp.com/servers"
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={handleSync}
+            disabled={isSyncing}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80 disabled:opacity-50"
+            title="Sync all servers to mcporter.json"
+          >
+            {isSyncing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            Sync to OpenClaw
+          </button>
+          <button
+            onClick={() => setIsBuiltinModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80"
           >
-            <ExternalLink className="w-4 h-4" />
-            Browse pulsemcp.com
-          </a>
+            <Package className="w-4 h-4" />
+            Built-in
+          </button>
           <button
             onClick={() => setIsImportModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary hover:bg-secondary/80"
@@ -140,97 +277,131 @@ export function McpServersPage() {
         </div>
       </div>
 
+      {/* Guide for non-developers */}
+      <McpGuide />
+
+      {/* Info banner */}
+      <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 flex items-start gap-3">
+        <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5" />
+        <div className="text-sm">
+          <p className="font-medium text-blue-500">OpenClaw MCP Integration</p>
+          <p className="text-muted-foreground mt-1">
+            MCP servers are configured in OpenClaw using the <code className="bg-secondary px-1 py-0.5 rounded">mcporter</code> skill.
+            Use <strong>stdio</strong> transport for local MCP servers (npx, python) and <strong>http</strong> transport for remote servers via mcp-remote bridge.
+            <br />
+            <strong>👆 Разверните "Руководство по MCP" выше для подробной инструкции!</strong>
+          </p>
+        </div>
+      </div>
+
       {servers?.length === 0 ? (
         <div className="text-center py-12 bg-card border border-border rounded-xl">
           <Server className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <h3 className="text-lg font-medium">No MCP servers configured</h3>
-          <p className="text-muted-foreground mt-1">Add your first MCP endpoint to get started</p>
+          <p className="text-muted-foreground mt-1">
+            Add your first MCP server or import from pulsemcp.com
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
           {servers?.map((server) => (
             <div
               key={server.id}
-              className="bg-card border border-border rounded-xl p-4 flex items-center justify-between"
+              className="bg-card border border-border rounded-xl p-4"
             >
-              <div className="flex items-center gap-4">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                  server.enabled ? 'bg-green-500/10 text-green-500' : 'bg-muted text-muted-foreground'
-                }`}>
-                  <Server className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold">{server.name}</h3>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-secondary">
-                      {server.authType}
-                    </span>
-                  </div>
-                  <a
-                    href={server.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-muted-foreground hover:text-primary flex items-center gap-1"
-                  >
-                    {server.url}
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                {testResults[server.id] && (
-                  <span className={`text-xs flex items-center gap-1 ${
-                    testResults[server.id].success ? 'text-green-500' : 'text-red-500'
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-4">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                    server.enabled ? 'bg-green-500/10 text-green-500' : 'bg-muted text-muted-foreground'
                   }`}>
-                    {testResults[server.id].success ? (
-                      <CheckCircle2 className="w-3 h-3" />
-                    ) : (
-                      <XCircle className="w-3 h-3" />
+                    {getTransportIcon(server.transportType)}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold">{server.name}</h3>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-secondary flex items-center gap-1">
+                        {getTransportIcon(server.transportType)}
+                        {server.transportType}
+                      </span>
+                      {server.isBuiltin && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500">
+                          Built-in
+                        </span>
+                      )}
+                    </div>
+                    {server.description && (
+                      <p className="text-sm text-muted-foreground mt-1">{server.description}</p>
                     )}
-                    {testResults[server.id].message}
-                  </span>
-                )}
+                    
+                    {/* Transport details */}
+                    <div className="mt-2 space-y-1">
+                      {server.transportType === 'stdio' && server.command && (
+                        <p className="text-xs text-muted-foreground font-mono">
+                          {server.command} {server.args?.join(' ')}
+                        </p>
+                      )}
+                      {server.transportType === 'http' && server.url && (
+                        <p className="text-xs text-muted-foreground font-mono">{server.url}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
 
-                <button
-                  onClick={() => handleTest(server)}
-                  disabled={testingId === server.id}
-                  className="p-2 rounded-lg bg-secondary hover:bg-secondary/80 disabled:opacity-50"
-                  title="Test connection"
-                >
-                  {testingId === server.id ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="w-4 h-4" />
+                <div className="flex items-center gap-3">
+                  {testResults[server.id] && (
+                    <span className={`text-xs flex items-center gap-1 ${
+                      testResults[server.id].success ? 'text-green-500' : 'text-red-500'
+                    }`}>
+                      {testResults[server.id].success ? (
+                        <CheckCircle2 className="w-3 h-3" />
+                      ) : (
+                        <XCircle className="w-3 h-3" />
+                      )}
+                      {testResults[server.id].message}
+                    </span>
                   )}
-                </button>
 
-                <button
-                  onClick={() => toggleEnabled(server)}
-                  className={`px-3 py-1 rounded-lg text-sm ${
-                    server.enabled
-                      ? 'bg-green-500/10 text-green-500'
-                      : 'bg-muted text-muted-foreground'
-                  }`}
-                >
-                  {server.enabled ? 'Enabled' : 'Disabled'}
-                </button>
+                  <button
+                    onClick={() => handleTest(server)}
+                    disabled={testingId === server.id}
+                    className="p-2 rounded-lg bg-secondary hover:bg-secondary/80 disabled:opacity-50"
+                    title="Test connection"
+                  >
+                    {testingId === server.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4" />
+                    )}
+                  </button>
 
-                <button
-                  onClick={() => handleDelete(server.id)}
-                  className="p-2 rounded-lg hover:bg-destructive/10 text-destructive"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                  <button
+                    onClick={() => toggleEnabled(server)}
+                    className={`px-3 py-1 rounded-lg text-sm ${
+                      server.enabled
+                        ? 'bg-green-500/10 text-green-500'
+                        : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {server.enabled ? 'Enabled' : 'Disabled'}
+                  </button>
+
+                  <button
+                    onClick={() => handleDelete(server.id)}
+                    className="p-2 rounded-lg hover:bg-destructive/10 text-destructive"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
         </div>
       )}
 
+      {/* Create Modal */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md">
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-auto">
             <h2 className="text-lg font-semibold mb-4">Add MCP Server</h2>
             <div className="space-y-4">
               <div>
@@ -243,28 +414,91 @@ export function McpServersPage() {
                   placeholder="e.g., My MCP Server"
                 />
               </div>
+              
               <div>
-                <label className="block text-sm font-medium mb-1">URL</label>
+                <label className="block text-sm font-medium mb-1">Description</label>
                 <input
                   type="text"
-                  value={newServer.url}
-                  onChange={(e) => setNewServer({ ...newServer, url: e.target.value })}
+                  value={newServer.description}
+                  onChange={(e) => setNewServer({ ...newServer, description: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
-                  placeholder="https://api.example.com/mcp"
+                  placeholder="What does this server do?"
                 />
               </div>
+              
               <div>
-                <label className="block text-sm font-medium mb-1">Authentication</label>
+                <label className="block text-sm font-medium mb-1">Transport Type</label>
                 <select
-                  value={newServer.authType}
-                  onChange={(e) => setNewServer({ ...newServer, authType: e.target.value })}
+                  value={newServer.transportType}
+                  onChange={(e) => setNewServer({ ...newServer, transportType: e.target.value as any })}
                   className="w-full px-3 py-2 rounded-lg bg-secondary border border-border"
                 >
-                  <option value="none">None</option>
-                  <option value="api_key">API Key</option>
-                  <option value="bearer">Bearer Token</option>
-                  <option value="basic">Basic Auth</option>
+                  <option value="stdio">stdio (local command)</option>
+                  <option value="http">http (remote via mcp-remote)</option>
                 </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Use <strong>stdio</strong> for local MCP servers (npx, python). 
+                  Use <strong>http</strong> for remote servers.
+                </p>
+              </div>
+              
+              {newServer.transportType === 'stdio' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Command</label>
+                    <input
+                      type="text"
+                      value={newServer.command}
+                      onChange={(e) => setNewServer({ ...newServer, command: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg bg-secondary border border-border font-mono"
+                      placeholder="npx"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      The command to run (e.g., npx, python, node)
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Arguments (space-separated)</label>
+                    <input
+                      type="text"
+                      value={newServer.args}
+                      onChange={(e) => setNewServer({ ...newServer, args: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg bg-secondary border border-border font-mono"
+                      placeholder="-y @modelcontextprotocol/server-filesystem /path"
+                    />
+                  </div>
+                </>
+              )}
+              
+              {newServer.transportType === 'http' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">URL</label>
+                  <input
+                    type="text"
+                    value={newServer.url}
+                    onChange={(e) => setNewServer({ ...newServer, url: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-secondary border border-border font-mono"
+                    placeholder="https://api.example.com/mcp"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Will use <code className="bg-secondary px-1 rounded">mcp-remote</code> bridge
+                  </p>
+                </div>
+              )}
+              
+              <div>
+                <label className="block text-sm font-medium mb-1">Environment Variables (JSON)</label>
+                <textarea
+                  value={newServer.env}
+                  onChange={(e) => setNewServer({ ...newServer, env: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2 rounded-lg bg-secondary border border-border font-mono text-sm"
+                  placeholder={`{\n  "API_KEY": "your-key",\n  "DEBUG": "true"\n}`}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Optional JSON object with environment variables
+                </p>
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-6">
@@ -276,7 +510,7 @@ export function McpServersPage() {
               </button>
               <button
                 onClick={handleCreate}
-                disabled={!newServer.name || !newServer.url}
+                disabled={!newServer.name}
                 className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
                 Add Server
@@ -286,12 +520,59 @@ export function McpServersPage() {
         </div>
       )}
 
+      {/* Built-in Modal */}
+      {isBuiltinModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold">Built-in MCP Servers</h2>
+                <p className="text-sm text-muted-foreground">
+                  Pre-configured MCP servers for common use cases
+                </p>
+              </div>
+              <button
+                onClick={() => setIsBuiltinModalOpen(false)}
+                className="p-2 rounded-lg hover:bg-muted"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-3">
+              {builtinServers?.map((server) => (
+                <div
+                  key={server.name}
+                  className="flex items-center justify-between p-4 rounded-lg bg-muted"
+                >
+                  <div>
+                    <h3 className="font-medium">{server.name}</h3>
+                    <p className="text-sm text-muted-foreground">{server.description}</p>
+                    <code className="text-xs bg-secondary px-2 py-1 rounded mt-2 inline-block">
+                      {server.command} {server.args.join(' ')}
+                    </code>
+                  </div>
+                  <button
+                    onClick={() => handleInstallBuiltin(server)}
+                    disabled={servers?.some(s => s.name === server.name)}
+                    className="px-3 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:bg-muted disabled:text-muted-foreground"
+                  >
+                    {servers?.some(s => s.name === server.name) ? 'Installed' : 'Install'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Modal */}
       {isImportModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-card border border-border rounded-xl p-6 w-full max-w-lg">
             <h2 className="text-lg font-semibold mb-4">Import MCP Server from JSON</h2>
             <p className="text-sm text-muted-foreground mb-4">
-              Paste JSON config from{' '}
+              Paste MCP server configuration from{' '}
               <a 
                 href="https://www.pulsemcp.com/servers" 
                 target="_blank" 
@@ -300,7 +581,7 @@ export function McpServersPage() {
               >
                 pulsemcp.com
               </a>
-              {' '}or create manually
+              {' '}or other sources
             </p>
             <div className="space-y-4">
               <textarea
@@ -310,18 +591,11 @@ export function McpServersPage() {
                 rows={12}
                 placeholder={`{
   "name": "My MCP Server",
-  "url": "https://api.example.com/mcp",
-  "auth": {
-    "type": "api_key",
-    "apiKey": "your-api-key"
-  },
-  "tools": [
-    {
-      "name": "search",
-      "description": "Search functionality",
-      "parameters": { ... }
-    }
-  ]
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "./data"],
+  "env": {
+    "API_KEY": "your-key"
+  }
 }`}
               />
             </div>

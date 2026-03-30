@@ -272,6 +272,26 @@ const migrations = [
   `
   CREATE INDEX IF NOT EXISTS idx_tools_mcp_server_id ON tools(mcp_server_id);
   `,
+  
+  // MCP v2: Add transport_type, command, args, env for OpenClaw mcporter support
+  `
+  ALTER TABLE mcp_servers ADD COLUMN transport_type TEXT DEFAULT 'stdio';
+  `,
+  `
+  ALTER TABLE mcp_servers ADD COLUMN command TEXT;
+  `,
+  `
+  ALTER TABLE mcp_servers ADD COLUMN args TEXT; -- JSON array
+  `,
+  `
+  ALTER TABLE mcp_servers ADD COLUMN env TEXT; -- JSON object for env vars
+  `,
+  `
+  ALTER TABLE mcp_servers ADD COLUMN description TEXT;
+  `,
+  `
+  ALTER TABLE mcp_servers ADD COLUMN is_builtin INTEGER DEFAULT 0;
+  `,
 ];
 
 const seeds = [

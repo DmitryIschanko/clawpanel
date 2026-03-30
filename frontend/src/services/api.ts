@@ -190,14 +190,35 @@ export const settingsApi = {
 export const mcpApi = {
   list: () => api.get('/mcp'),
   get: (id: number) => api.get(`/mcp/${id}`),
-  create: (data: { name: string; url: string; authType?: string; authConfig?: any }) =>
-    api.post('/mcp', data),
-  update: (id: number, data: Partial<{ name: string; url: string; authType: string; authConfig: any; enabled: boolean }>) =>
-    api.put(`/mcp/${id}`, data),
+  create: (data: { 
+    name: string; 
+    description?: string;
+    transportType: 'stdio' | 'http' | 'websocket';
+    command?: string;
+    args?: string[];
+    url?: string;
+    env?: Record<string, string>;
+    authType?: string; 
+    authConfig?: any;
+  }) => api.post('/mcp', data),
+  update: (id: number, data: Partial<{
+    name: string;
+    description?: string;
+    transportType: 'stdio' | 'http' | 'websocket';
+    command?: string;
+    args?: string[];
+    url?: string;
+    env?: Record<string, string>;
+    authType: string;
+    authConfig: any;
+    enabled: boolean;
+  }>) => api.put(`/mcp/${id}`, data),
   delete: (id: number) => api.delete(`/mcp/${id}`),
   test: (id: number) => api.post(`/mcp/${id}/test`),
+  sync: () => api.post('/mcp/sync'),
   importJson: (data: { name: string; configJson: string }) =>
     api.post('/mcp/import-json', data),
+  getBuiltin: () => api.get('/mcp/builtin'),
 }
 
 // Tools API

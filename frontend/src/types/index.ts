@@ -98,6 +98,7 @@ export interface ChainNode {
     agentId?: number
     instruction?: string
     outputMode?: 'full' | 'summary' | 'none'
+    historyMode?: 'last-only' | 'full-history' | 'smart'
   }
 }
 
@@ -124,6 +125,33 @@ export interface Channel {
   agent_name?: string
   allow_from: string[]
   dm_policy: 'pairing' | 'open' | 'restricted'
+}
+
+export interface McpServer {
+  id: number
+  name: string
+  description?: string
+  transportType: 'stdio' | 'http' | 'websocket'
+  command?: string
+  args?: string[]
+  url?: string
+  env?: Record<string, string>
+  authType: 'none' | 'api_key' | 'bearer' | 'basic'
+  authConfig?: Record<string, string>
+  enabled: boolean
+  isBuiltin: boolean
+  createdAt: number
+}
+
+export interface Tool {
+  id: number
+  name: string
+  type: 'browser' | 'cron' | 'webhook' | 'mcp'
+  config: Record<string, any>
+  enabled: boolean
+  agentId?: number
+  mcpServerName?: string
+  createdAt: number
 }
 
 export interface FileNode {
