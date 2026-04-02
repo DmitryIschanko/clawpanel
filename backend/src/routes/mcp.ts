@@ -262,7 +262,7 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'mcp'), asy
       url,
     },
     mcporterSync: syncResult,
-  }));
+  });
 }));
 
 /**

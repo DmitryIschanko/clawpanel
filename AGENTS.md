@@ -189,6 +189,37 @@ npm run test:coverage    # Coverage report
 npx playwright test
 ```
 
+## Миграции базы данных
+
+Миграции выполняются автоматически при запуске backend. Файлы миграций находятся в `backend/src/database/migrations/`.
+
+### Создание новой миграции
+
+```bash
+# Создать файл миграции с timestamp
+# Формат: YYYYMMDDNN_description.sql
+# Пример: 015_add_composio_tables.sql
+```
+
+### Последние миграции
+
+| Файл | Описание |
+|------|----------|
+| `015_add_composio_tables.sql` | Добавление таблиц для Composio интеграции |
+
+### Ручное применение миграции
+
+```bash
+# Внутри контейнера backend
+docker compose exec backend node -e "
+  const db = require('./src/database');
+  const fs = require('fs');
+  const sql = fs.readFileSync('./src/database/migrations/015_add_composio_tables.sql', 'utf8');
+  db.exec(sql);
+  console.log('Migration applied');
+"
+```
+
 ## Структура базы данных (SQLite)
 
 ### Таблицы
@@ -341,7 +372,44 @@ tools (
   config TEXT,              -- JSON
   enabled INTEGER DEFAULT 1,
   agent_id INTEGER,         -- NULL = available to all
-  mcp_server_id INTEGER     -- NULL = built-in tool
+  mcp_server_id INTEGER,    -- NULL = built-in tool
+  composio_tool_slug TEXT,  -- Для инструментов из Composio
+  source TEXT DEFAULT 'mcp' -- mcp, composio, builtin
+)
+
+-- Composio конфигурация
+composio_config (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  api_key TEXT,             -- Encrypted Project API Key
+  is_active INTEGER DEFAULT 0,
+  connected_at TEXT,
+  updated_at TEXT DEFAULT (datetime('now'))
+)
+
+-- Composio подключенные приложения
+composio_apps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  toolkit_slug TEXT NOT NULL UNIQUE,  -- e.g., 'googlesheets', 'github'
+  display_name TEXT NOT NULL,         -- Human-readable name
+  logo_url TEXT,
+  auth_config_id TEXT,                -- Composio auth config ID
+  auth_scheme TEXT,                   -- OAUTH2, etc.
+  status TEXT DEFAULT 'disconnected', -- disconnected, pending, active, error
+  connected_account_id TEXT,          -- Composio connected account ID
+  error_message TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+)
+
+-- Composio инструменты (опциональный кэш)
+composio_tools (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  app_id INTEGER REFERENCES composio_apps(id) ON DELETE CASCADE,
+  tool_slug TEXT NOT NULL,            -- e.g., 'GOOGLE_SHEETS_GET_SHEET'
+  display_name TEXT,
+  description TEXT,
+  input_schema TEXT,                  -- JSON Schema
+  updated_at TEXT DEFAULT (datetime('now'))
 )
 
 -- Сообщения чата
@@ -473,6 +541,19 @@ POST   /api/mcp/:id/test           # Тест подключения
 POST   /api/mcp/sync               # Синхронизировать с mcporter.json
 POST   /api/mcp/import-json        # Импорт из JSON
 
+// Composio Integration
+GET    /api/composio/config              # Статус конфигурации
+POST   /api/composio/config              # Сохранить API ключ
+DELETE /api/composio/config              # Удалить конфигурацию
+GET    /api/composio/catalog             # Каталог доступных интеграций
+GET    /api/composio/apps                # Список подключенных приложений
+POST   /api/composio/apps                # Подключить новое приложение
+DELETE /api/composio/apps/:id            # Отключить приложение
+GET    /api/composio/apps/:id/status     # Проверить статус подключения
+POST   /api/composio/apps/:id/sync       # Синхронизировать инструменты
+GET    /api/composio/callback            # OAuth callback (redirect)
+POST   /api/composio/callback            # Webhook от Composio
+
 // Tools
 GET    /api/tools
 POST   /api/tools
@@ -565,6 +646,97 @@ installMcpRemote(): Promise<boolean>
   }
 }
 ```
+
+## Composio Integration
+
+Интеграция с [Composio](https://composio.dev) позволяет подключать 1000+ внешних сервисов к агентам через OAuth.
+
+### Архитектура
+
+```
+┌─────────────────┐     OAuth2     ┌──────────────────┐
+│   ClawPanel     │ ◄──────────────► │   Composio       │
+│   (Frontend)    │                  │   (OAuth Provider)│
+└────────┬────────┘                  └────────┬─────────┘
+         │                                    │
+         │ POST /api/composio/apps            │
+         │ (create connection)                │
+         ▼                                    ▼
+┌─────────────────┐                  ┌──────────────────┐
+│   Backend       │ ◄─────────────── │   Composio API   │
+│   (Node.js)     │   Webhook events │   (backend.      │
+└────────┬────────┘                  │    composio.dev) │
+         │                           └──────────────────┘
+         │                                    │
+         │ GET /api/composio/callback         │
+         │ (OAuth redirect)                   │
+         ▼                                    │
+┌─────────────────┐                          │
+│   User Browser  │ ◄─────────────────────────┘
+│   (OAuth flow)  │   Redirect to service auth
+└─────────────────┘
+```
+
+### Настройка
+
+1. Получите Project API Key с [app.composio.dev](https://app.composio.dev)
+2. Введите ключ в разделе **Composio → Settings**
+3. Настройте Callback URL в Composio Dashboard:
+   ```
+   https://your-domain.com/api/composio/callback
+   ```
+4. Настройте Webhook URL (тот же endpoint):
+   ```
+   https://your-domain.com/api/composio/callback
+   ```
+
+### Flow подключения
+
+1. Пользователь выбирает сервис из каталога (Gmail, GitHub, и т.д.)
+2. Backend создает `connected_account` через Composio API
+3. Пользователь авторизуется на странице Composio OAuth
+4. Composio редиректит на callback URL
+5. Backend обновляет статус на `active`
+6. Агенты могут использовать подключенный сервис
+
+### API Endpoints
+
+| Endpoint | Описание |
+|----------|----------|
+| `GET /api/composio/config` | Статус конфигурации |
+| `POST /api/composio/config` | Сохранить API ключ |
+| `GET /api/composio/catalog` | Каталог доступных интеграций |
+| `POST /api/composio/apps` | Подключить приложение |
+| `DELETE /api/composio/apps/:id` | Отключить приложение |
+| `GET /api/composio/apps/:id/status` | Проверить статус |
+
+### Таблицы базы данных
+
+```sql
+-- Конфигурация
+composio_config (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  api_key TEXT,
+  is_active INTEGER DEFAULT 0
+)
+
+-- Подключенные приложения
+composio_apps (
+  id INTEGER PRIMARY KEY,
+  toolkit_slug TEXT NOT NULL,      -- 'googlesheets', 'github'
+  display_name TEXT,
+  status TEXT DEFAULT 'disconnected',
+  connected_account_id TEXT,
+  auth_config_id TEXT
+)
+```
+
+### Особенности
+
+- Единый `user_id` для всей панели: `clawpanel-default`
+- Поддерживаемые auth schemes: `OAUTH2`
+- Инструменты доступны нативно через Composio (не требуют синхронизации)
+- Webhook автоматически обновляет статус после авторизации
 
 ## Цепочки (Chains)
 

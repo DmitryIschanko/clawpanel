@@ -18,6 +18,7 @@ import {
 import { mcpApi } from '../services/api'
 import type { McpServer } from '../types'
 import { McpGuide } from '../components/McpGuide'
+import { ComposioIntegration } from '../components/ComposioIntegration'
 
 interface BuiltinServer {
   name: string
@@ -279,6 +280,9 @@ export function McpServersPage() {
 
       {/* Guide for non-developers */}
       <McpGuide />
+
+      {/* Composio Integration */}
+      <ComposioIntegration />
 
       {/* Info banner */}
       <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 flex items-start gap-3">

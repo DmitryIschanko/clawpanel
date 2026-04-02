@@ -18,6 +18,7 @@ import { SettingsPage } from './pages/Settings'
 import { UsersPage } from './pages/Users'
 import { McpServersPage } from './pages/McpServers'
 import { ToolsPage } from './pages/Tools'
+import { ComposioPage } from './pages/Composio'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,6 +60,7 @@ function App() {
             <Route path="users" element={<UsersPage />} />
             <Route path="mcp" element={<McpServersPage />} />
             <Route path="tools" element={<ToolsPage />} />
+            <Route path="composio" element={<ComposioPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -221,6 +221,41 @@ export const mcpApi = {
   getBuiltin: () => api.get('/mcp/builtin'),
 }
 
+// Composio API
+export const composioApi = {
+  // Config
+  getComposioConfig: () => api.get('/composio/config'),
+  saveComposioConfig: (apiKey: string) => api.post('/composio/config', { apiKey }),
+  deleteComposioConfig: () => api.delete('/composio/config'),
+  
+  // Catalog
+  getComposioCatalog: (params?: { search?: string; category?: string }) =>
+    api.get('/composio/catalog', { params }),
+  
+  // Apps (connected services)
+  getComposioApps: () => api.get('/composio/apps'),
+  connectComposioApp: (data: { toolkit_slug: string; display_name: string; logo_url?: string }) =>
+    api.post('/composio/apps', data),
+  disconnectComposioApp: (id: number) => api.delete(`/composio/apps/${id}`),
+  
+  // Tools sync
+  syncComposioTools: (appId: number) => api.post(`/composio/apps/${appId}/sync`),
+  checkComposioAppStatus: (appId: number) => api.get(`/composio/apps/${appId}/status`),
+  
+  // Legacy methods (for backward compatibility)
+  getStatus: () => api.get('/composio/status'),
+  getToolkits: (params?: { limit?: number; cursor?: string; category?: string; search?: string }) => 
+    api.get('/composio/toolkits', { params }),
+  getConnections: () => api.get('/composio/connections'),
+  connectApp: (toolkit: string, callbackUrl?: string) => api.post('/composio/connections', { toolkit, callbackUrl }),
+  disconnectApp: (id: string) => api.delete(`/composio/connections/${id}`),
+  getCategories: () => api.get('/composio/categories'),
+  removeConfig: (params?: { uninstallPlugin?: string }) => api.delete('/composio/config', { params }),
+  installPlugin: () => api.post('/composio/install'),
+  uninstallPlugin: () => api.post('/composio/uninstall'),
+  createMcpServer: () => api.post('/composio/mcp-server'),
+}
+
 // Tools API
 export const toolsApi = {
   list: () => api.get('/tools'),

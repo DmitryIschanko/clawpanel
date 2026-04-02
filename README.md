@@ -14,6 +14,8 @@
 - **File Manager** — просмотр и редактирование файлов с Monaco Editor
 - **Web Terminal** — полноценный SSH терминал к серверу с OpenClaw CLI (xterm.js)
 - **Monitoring** — графики использования, логи, алерты
+- **MCP Manager** — управление MCP серверами с интеграцией OpenClaw mcporter (stdio/http транспорты, встроенные серверы)
+- **Composio Integration** — подключение 1000+ сервисов через OAuth (Google Sheets, Gmail, GitHub, Notion, и др.)
 - **Settings** — редактор openclaw.json с валидацией, backup/restore
 
 ## Архитектура

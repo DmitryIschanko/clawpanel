@@ -53,11 +53,12 @@ export async function writeMcporterConfig(config: MCPorterConfig): Promise<boole
     // Ensure the config directory exists
     await execOnHost('mkdir -p ~/.openclaw/workspace/config');
     
-    // Write the config file
+    // Write the config file using tee (more reliable than echo)
     const jsonStr = JSON.stringify(config, null, 2);
-    const escapedJson = jsonStr.replace(/"/g, '\\"').replace(/\$/g, '\\$');
     
-    const result = await execOnHost(`echo "${escapedJson}" > ${MCPORTER_CONFIG_PATH}`);
+    const result = await execOnHost(`cat << 'MCP_EOF' | tee ${MCPORTER_CONFIG_PATH} > /dev/null
+${jsonStr}
+MCP_EOF`);
     
     if (!result.success) {
       logger.error('Failed to write mcporter config:', result.stderr);
@@ -98,9 +99,16 @@ export async function syncServerToMcporter(
       };
     } else if (server.transport_type === 'http' && server.url) {
       // For HTTP transport - use mcp-remote bridge
+      const args = [server.url];
+      
+      // Special handling for Composio - add headers if COMPOSIO_API_KEY is in env
+      if (server.env?.COMPOSIO_API_KEY && server.url.includes('composio.dev')) {
+        args.push('--header', `x-consumer-api-key:${server.env.COMPOSIO_API_KEY}`);
+      }
+      
       config.mcpServers[name] = {
         command: 'mcp-remote',
-        args: [server.url],
+        args,
         env: server.env || undefined,
       };
     } else {

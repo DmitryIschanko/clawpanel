@@ -12,6 +12,7 @@ import userRoutes from './users';
 import settingsRoutes from './settings';
 import mcpRoutes from './mcp';
 import toolRoutes from './tools';
+import composioRoutes from './composio';
 
 const router = Router();
 
@@ -34,5 +35,6 @@ router.use('/users', userRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/mcp', mcpRoutes);
 router.use('/tools', toolRoutes);
+router.use('/composio', composioRoutes);
 
 export default router;
