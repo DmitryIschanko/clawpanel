@@ -222,7 +222,6 @@ export const mcpApi = {
   importJson: (data: { name: string; configJson: string }) =>
     api.post('/mcp/import-json', data),
   getBuiltin: () => api.get('/mcp/builtin'),
-  getAvailableTools: () => api.get('/mcp/available-tools'),
 }
 
 // Composio API
@@ -244,7 +243,6 @@ export const composioApi = {
   
   // Tools sync
   syncComposioTools: (appId: number) => api.post(`/composio/apps/${appId}/sync`),
-  syncAllTools: () => api.post('/composio/sync-all-tools'),
   checkComposioAppStatus: (appId: number) => api.get(`/composio/apps/${appId}/status`),
   
   // Legacy methods (for backward compatibility)
@@ -259,7 +257,6 @@ export const composioApi = {
   installPlugin: () => api.post('/composio/install'),
   uninstallPlugin: () => api.post('/composio/uninstall'),
   createMcpServer: () => api.post('/composio/mcp-server'),
-  getAvailableTools: () => api.get('/composio/available-tools'),
 }
 
 // Tools API
@@ -268,18 +265,7 @@ export const toolsApi = {
   get: (id: number) => api.get(`/tools/${id}`),
   create: (data: { name: string; type: 'browser' | 'cron' | 'webhook'; config?: any; agentId?: number }) =>
     api.post('/tools', data),
-  createFromMcp: (data: { mcpToolId: number; name: string; agentId?: number }) =>
-    api.post('/tools/from-mcp', data),
-  createFromComposio: (data: { composioToolId: number; name: string; agentId?: number }) =>
-    api.post('/tools/from-composio', data),
   update: (id: number, data: Partial<{ name: string; config: any; enabled: boolean; agentId: number }>) =>
     api.put(`/tools/${id}`, data),
   delete: (id: number) => api.delete(`/tools/${id}`),
-  // Grouped by app
-  getGroupedByApp: () => api.get('/tools/grouped-by-app'),
-  // Bulk operations
-  bulkUpdate: (data: { toolIds: number[]; enabled: boolean; agentId?: number }) =>
-    api.post('/tools/bulk-update', data),
-  bulkUpdateByApp: (appId: number, data: { enabled: boolean; agentId?: number }) =>
-    api.post(`/tools/by-app/${appId}/bulk-update`, data),
 }

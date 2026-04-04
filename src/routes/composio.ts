@@ -481,36 +481,6 @@ router.get('/apps/:id/status', authenticateToken, asyncHandler(async (req, res) 
 }));
 
 /**
- * POST /api/composio/sync-all-tools
- * Sync tools for all active apps
- */
-router.post('/sync-all-tools', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  const db = getDatabase();
-  const apiKey = getApiKey();
-
-  if (!apiKey) {
-    throw new ValidationError('Composio API key not configured');
-  }
-
-  const apps = db.prepare("SELECT * FROM composio_apps WHERE status = 'active'").all() as any[];
-  const results = [];
-
-  for (const app of apps) {
-    try {
-      await syncComposioAppTools(app.id);
-      results.push({ appId: app.id, name: app.display_name, success: true });
-    } catch (error: any) {
-      results.push({ appId: app.id, name: app.display_name, success: false, error: error.message });
-    }
-  }
-
-  res.json({
-    success: true,
-    data: { synced: results.filter(r => r.success).length, total: apps.length, results },
-  });
-}));
-
-/**
  * POST /api/composio/apps/:id/sync-tools
  * Sync tools for an app
  */
@@ -588,32 +558,5 @@ async function syncToolsForApp(appId: number, apiKey: string): Promise<number> {
     return 0;
   }
 }
-
-/**
- * GET /api/composio/available-tools
- * Get list of available tools from all active Composio apps
- */
-router.get('/available-tools', authenticateToken, asyncHandler(async (req, res) => {
-  const db = getDatabase();
-  
-  // Get all tools from Composio apps
-  const tools = db.prepare(`
-    SELECT t.id, t.name, t.description, t.composio_app_id, c.display_name as app_name
-    FROM tools t
-    JOIN composio_apps c ON t.composio_app_id = c.id
-    WHERE t.source = 'composio' AND c.status = 'active' AND t.enabled = 1
-    ORDER BY c.display_name, t.name
-  `).all();
-  
-  res.json({
-    success: true,
-    data: tools.map((t: any) => ({
-      id: t.id,
-      name: t.name,
-      description: t.description,
-      appName: t.app_name,
-    })),
-  });
-}));
 
 export default router;

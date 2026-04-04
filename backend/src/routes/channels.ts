@@ -7,7 +7,9 @@ import { auditLog } from '../middleware/audit';
 import { 
   setupTelegramChannel, 
   removeTelegramChannel, 
-  restartGateway 
+  restartGateway,
+  addChannelBinding,
+  removeChannelBinding
 } from '../services/hostExecutor';
 import { logger } from '../utils/logger';
 import type { Channel } from '../types/database';
@@ -71,8 +73,15 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'channel'),
       await setupTelegramChannel(
         config.botToken,
         dm_policy || 'pairing',
-        allow_from || []
+        allow_from || [],
+        name  // Use channel name as accountId for multi-bot support
       );
+      
+      // Add binding for this channel to agent
+      const openClawAgentId = agent_id ? `clawpanel-${agent_id}` : 'main';
+      await addChannelBinding('telegram', name, openClawAgentId);
+      
+      await restartGateway();
       logger.info('Telegram configured in OpenClaw');
     } catch (error: any) {
       logger.error('Failed to configure Telegram:', error);
@@ -96,7 +105,7 @@ router.post('/', authenticateToken, requireAdmin, auditLog('create', 'channel'),
 
 router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'channel'), asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
+  const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id) as Channel | undefined;
   if (!channel) throw new NotFoundError('Channel not found');
   
   const updates = req.body;
@@ -115,6 +124,17 @@ router.put('/:id', authenticateToken, requireAdmin, auditLog('update', 'channel'
     db.prepare(`UPDATE channels SET ${fields.join(', ')}, updated_at = unixepoch() WHERE id = ?`).run(...values);
   }
   
+  // Update binding if agent_id changed
+  if (updates.agent_id !== undefined && channel.type === 'telegram') {
+    try {
+      const openClawAgentId = updates.agent_id ? `clawpanel-${updates.agent_id}` : 'main';
+      await addChannelBinding('telegram', channel.name, openClawAgentId);
+      await restartGateway();
+    } catch (error: any) {
+      logger.error('Failed to update channel binding:', error);
+    }
+  }
+  
   res.json({ success: true, message: 'Channel updated' });
 }));
 
@@ -124,7 +144,13 @@ router.delete('/:id', authenticateToken, requireAdmin, auditLog('delete', 'chann
   if (!channel) throw new NotFoundError('Channel not found');
   
   if (channel.type === 'telegram') {
-    try { await removeTelegramChannel(); } catch (e) { /* ignore */ }
+    try { 
+      // Remove binding for this channel
+      const config = channel.config ? JSON.parse(channel.config) : {};
+      await removeChannelBinding('telegram', channel.name);
+      // Note: We don't remove the account from OpenClaw config, just the binding
+      await restartGateway();
+    } catch (e) { /* ignore */ }
   }
   
   db.prepare('DELETE FROM channels WHERE id = ?').run(req.params.id);

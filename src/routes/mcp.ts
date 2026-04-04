@@ -837,31 +837,4 @@ router.post('/:id/test', authenticateToken, asyncHandler(async (req, res) => {
   }
 }));
 
-/**
- * GET /api/mcp/available-tools
- * Get list of available tools from all enabled MCP servers
- */
-router.get('/available-tools', authenticateToken, asyncHandler(async (req, res) => {
-  const db = getDatabase();
-  
-  // Get all tools from MCP servers
-  const tools = db.prepare(`
-    SELECT t.id, t.name, t.description, t.mcp_server_id, m.name as mcp_server_name
-    FROM tools t
-    JOIN mcp_servers m ON t.mcp_server_id = m.id
-    WHERE t.source = 'mcp' AND m.enabled = 1 AND t.enabled = 1
-    ORDER BY m.name, t.name
-  `).all();
-  
-  res.json({
-    success: true,
-    data: tools.map((t: any) => ({
-      id: t.id,
-      name: t.name,
-      description: t.description,
-      mcpServerName: t.mcp_server_name,
-    })),
-  });
-}));
-
 export default router;

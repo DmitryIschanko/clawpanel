@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import {
   Cloud,
@@ -6,15 +6,14 @@ import {
   Plus,
   Trash2,
   Loader2,
-  RefreshCw,
-  ExternalLink,
   CheckCircle2,
-  AlertCircle,
   Search,
   Grid,
   List,
   Plug,
   Settings,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import { composioApi } from '../services/api';
 
@@ -52,9 +51,9 @@ export function ComposioIntegration() {
   const [searchQuery, setSearchQuery] = useState('');
   const [connectingApp, setConnectingApp] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [isExpanded, setIsExpanded] = useState(true);
   const queryClient = useQueryClient();
 
-  // Fetch config
   const { data: configData } = useQuery<{ is_active: number; api_key_preview: string | null }>(
     'composio-config',
     async () => {
@@ -66,7 +65,6 @@ export function ComposioIntegration() {
   const config = configData || { is_active: 0, api_key_preview: null };
   const isActive = config.is_active === 1;
 
-  // Fetch connected apps
   const { data: appsData, refetch: refetchApps } = useQuery<ComposioApp[]>(
     'composio-apps',
     async () => {
@@ -78,7 +76,6 @@ export function ComposioIntegration() {
 
   const connectedApps = appsData || [];
 
-  // Fetch catalog
   const { data: catalogData } = useQuery<Toolkit[]>(
     'composio-catalog',
     async () => {
@@ -90,13 +87,6 @@ export function ComposioIntegration() {
 
   const catalog = catalogData || [];
 
-  // Filter catalog
-  const filteredCatalog = catalog.filter((t) =>
-    t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.slug.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Save API key
   const saveApiKey = async () => {
     if (!apiKey.trim()) return;
     setIsSaving(true);
@@ -112,45 +102,34 @@ export function ComposioIntegration() {
     }
   };
 
-  // Connect app
   const connectApp = async (toolkit: Toolkit) => {
     setConnectingApp(toolkit.slug);
     try {
-      console.log('Connecting app:', toolkit.slug);
       const response = await composioApi.connectComposioApp({
         toolkit_slug: toolkit.slug,
         display_name: toolkit.name,
         logo_url: toolkit.logo,
       });
       
-      console.log('Response:', response.data);
-      
-      // Handle different response structures
       const responseData = response.data.data || response.data;
       const redirect_url = responseData.redirect_url || responseData.redirectUrl || responseData.url;
       
       if (redirect_url) {
-        console.log('Opening redirect URL:', redirect_url);
-        // Use location.href instead of window.open to avoid popup blocker
         window.location.href = redirect_url;
       } else {
-        console.error('No redirect_url in response:', responseData);
         alert('No redirect URL received from server');
       }
       
       await refetchApps();
     } catch (error: any) {
-      console.error('Connect error:', error);
       alert(error.response?.data?.error?.message || error.message || 'Failed to connect app');
     } finally {
       setConnectingApp(null);
     }
   };
 
-  // Disconnect app
   const disconnectApp = async (app: ComposioApp) => {
     if (!confirm(`Disconnect ${app.display_name}?`)) return;
-    
     try {
       await composioApi.disconnectComposioApp(app.id);
       await refetchApps();
@@ -160,323 +139,382 @@ export function ComposioIntegration() {
     }
   };
 
-  // Check status
   const checkStatus = async (appId: number) => {
     try {
       const response = await composioApi.checkComposioAppStatus(appId);
-      const { status, isActive } = response.data.data;
-      
-      if (isActive) {
-        alert(`Status: Active! Tools synced successfully.`);
-      } else {
-        alert(`Status: ${status}. Please complete authorization.`);
-      }
-      
       await refetchApps();
+      
+      // If app became active, sync tools automatically
+      if (response.data.data?.isActive) {
+        try {
+          await composioApi.syncComposioTools(appId);
+          await refetchApps();
+          alert('App connected and tools synced successfully!');
+        } catch (syncError: any) {
+          console.error('Failed to sync tools:', syncError);
+        }
+      }
     } catch (error: any) {
       alert(error.response?.data?.error?.message || 'Failed to check status');
     }
   };
 
-  // Sync tools
   const syncTools = async (appId: number) => {
     try {
-      const response = await composioApi.syncComposioTools(appId);
-      const { synced } = response.data.data;
-      alert(`Synced ${synced} tools`);
+      await composioApi.syncComposioTools(appId);
       await refetchApps();
+      alert('Tools synced successfully!');
     } catch (error: any) {
       alert(error.response?.data?.error?.message || 'Failed to sync tools');
     }
   };
 
-  // Check if app is connected
+  // Auto-check status for pending apps
+  useEffect(() => {
+    if (!connectedApps.length) return;
+    
+    const pendingApps = connectedApps.filter(app => app.status === 'pending');
+    if (pendingApps.length === 0) return;
+
+    const interval = setInterval(() => {
+      pendingApps.forEach(app => checkStatus(app.id));
+    }, 10000); // Check every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [connectedApps]);
+
   const isConnected = (slug: string) => {
     return connectedApps.some((a) => a.toolkit_slug === slug && a.status === 'active');
   };
 
   if (!isActive) {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 bg-purple-600 rounded-lg">
-            <Cloud className="w-5 h-5 text-white" />
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <button 
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-600 rounded-lg">
+              <Cloud className="w-5 h-5 text-white" />
+            </div>
+            <div className="text-left">
+              <h3 className="text-lg font-semibold text-gray-900">Composio Integration</h3>
+              <p className="text-sm text-gray-600">Connect 1000+ tools to your agents</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Composio Integration</h3>
-            <p className="text-sm text-gray-600">Connect 1000+ tools to your agents</p>
-          </div>
-        </div>
+          {isExpanded ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
+        </button>
 
-        <div className="bg-gray-50 rounded-lg p-4">
-          <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
-            <Key className="w-4 h-4" />
-            Configure API Key
-          </h4>
-          <p className="text-sm text-gray-600 mb-3">
-            Get your API key from{' '}
-            <a href="https://app.composio.dev" target="_blank" rel="noopener noreferrer" className="text-purple-600 underline">
-              Composio Dashboard
-            </a>
-          </p>
-          <div className="flex gap-2">
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="cp_..."
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-            <button
-              onClick={saveApiKey}
-              disabled={isSaving || !apiKey.trim()}
-              className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
-            >
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Connect'}
-            </button>
+        {isExpanded && (
+          <div className="px-6 pb-6">
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+                <Key className="w-4 h-4" />
+                Configure API Key
+              </h4>
+              <p className="text-sm text-gray-600 mb-3">
+                Get your API key from{' '}
+                <a href="https://app.composio.dev" target="_blank" rel="noopener noreferrer" className="text-purple-600 underline">
+                  Composio Dashboard
+                </a>
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="cp_..."
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <button
+                  onClick={saveApiKey}
+                  disabled={isSaving || !apiKey.trim()}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Connect'}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   }
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-blue-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-purple-600 rounded-lg">
-              <Cloud className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Composio Integration</h3>
-              <p className="text-sm text-gray-600">
-                {connectedApps.filter((a) => a.status === 'active').length} apps connected
-              </p>
-            </div>
+      {/* Header - Clickable */}
+      <button 
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors border-b border-gray-200"
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-purple-600 rounded-lg">
+            <Cloud className="w-5 h-5 text-white" />
           </div>
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
-              Active
-            </span>
+          <div className="text-left">
+            <h3 className="text-lg font-semibold text-gray-900">Composio Integration</h3>
+            <p className="text-sm text-gray-600">
+              {connectedApps.filter((a) => a.status === 'active').length} apps connected
+            </p>
           </div>
         </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="border-b border-gray-200">
-        <div className="flex">
-          <button
-            onClick={() => setActiveTab('catalog')}
-            className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'catalog'
-                ? 'border-purple-600 text-purple-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Grid className="w-4 h-4 inline mr-1" />
-            Catalog
-          </button>
-          <button
-            onClick={() => setActiveTab('connected')}
-            className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'connected'
-                ? 'border-purple-600 text-purple-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Plug className="w-4 h-4 inline mr-1" />
-            Connected ({connectedApps.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'settings'
-                ? 'border-purple-600 text-purple-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Settings className="w-4 h-4 inline mr-1" />
-            Settings
-          </button>
+        <div className="flex items-center gap-3">
+          <span className="px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
+            Active
+          </span>
+          {isExpanded ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
         </div>
-      </div>
+      </button>
 
-      {/* Content */}
-      <div className="p-6">
-        {activeTab === 'catalog' && (
-          <div className="space-y-4">
-            {/* Search */}
-            <div className="flex gap-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search services..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
-              <div className="flex bg-gray-100 rounded-lg p-1">
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`p-2 rounded-md ${viewMode === 'grid' ? 'bg-white shadow-sm' : ''}`}
-                >
-                  <Grid className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`p-2 rounded-md ${viewMode === 'list' ? 'bg-white shadow-sm' : ''}`}
-                >
-                  <List className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Catalog Grid */}
-            {viewMode === 'grid' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredCatalog.map((toolkit) => (
-                  <ToolkitCard
-                    key={toolkit.slug}
-                    toolkit={toolkit}
-                    isConnected={isConnected(toolkit.slug)}
-                    onConnect={() => connectApp(toolkit)}
-                    isConnecting={connectingApp === toolkit.slug}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {filteredCatalog.map((toolkit) => (
-                  <ToolkitListItem
-                    key={toolkit.slug}
-                    toolkit={toolkit}
-                    isConnected={isConnected(toolkit.slug)}
-                    onConnect={() => connectApp(toolkit)}
-                    isConnecting={connectingApp === toolkit.slug}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'connected' && (
-          <div className="space-y-4">
-            {connectedApps.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <Cloud className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>No connected apps yet</p>
-                <p className="text-sm mt-2">Go to Catalog to connect your first service</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {connectedApps.map((app) => (
-                  <div
-                    key={app.id}
-                    className={`flex items-center justify-between p-4 border rounded-lg ${
-                      app.status === 'active' ? 'border-green-200 bg-green-50' : 'border-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      {app.logo_url ? (
-                        <img src={app.logo_url} alt={app.display_name} className="w-10 h-10 rounded object-contain" />
-                      ) : (
-                        <div className="w-10 h-10 bg-gray-200 rounded flex items-center justify-center text-gray-500 font-bold">
-                          {app.display_name[0]}
-                        </div>
-                      )}
-                      <div>
-                        <h4 className="font-medium text-gray-900">{app.display_name}</h4>
-                        <div className="flex items-center gap-2 text-sm">
-                          <StatusBadge status={app.status} />
-                          <span className="text-gray-500">via Composio</span>
-                        </div>
-                        {app.error_message && (
-                          <p className="text-xs text-red-600 mt-1">{app.error_message}</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {app.status === 'pending' && (
-                        <button
-                          onClick={() => checkStatus(app.id)}
-                          className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-md"
-                        >
-                          <Loader2 className="w-4 h-4 inline mr-1" />
-                          Check Status
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => disconnectApp(app)}
-                        className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-md"
-                      >
-                        <Trash2 className="w-4 h-4 inline mr-1" />
-                        Disconnect
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'settings' && (
-          <div className="space-y-6">
-            <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-              <div className="flex items-center gap-2 mb-2">
-                <CheckCircle2 className="w-5 h-5 text-green-600" />
-                <h4 className="font-semibold text-green-900">Connected</h4>
-              </div>
-              <p className="text-sm text-green-800">
-                API Key: {config.api_key_preview}
-              </p>
-            </div>
-
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-gray-900 mb-3">Update API Key</h4>
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="New API key..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-                <button
-                  onClick={saveApiKey}
-                  disabled={isSaving || !apiKey.trim()}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
-                >
-                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Update'}
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-red-50 rounded-lg p-4 border border-red-200">
-              <h4 className="text-sm font-medium text-red-900 mb-2">Danger Zone</h4>
-              <p className="text-sm text-red-700 mb-3">
-                Disconnecting will remove all Composio integrations and tools.
-              </p>
+      {/* Content - Collapsible */}
+      {isExpanded && (
+        <div>
+          {/* Tabs */}
+          <div className="border-b border-gray-200">
+            <div className="flex">
               <button
-                onClick={async () => {
-                  if (!confirm('Are you sure? This will disconnect all apps.')) return;
-                  await composioApi.deleteComposioConfig();
-                  await queryClient.invalidateQueries('composio-config');
-                }}
-                className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700"
+                onClick={() => setActiveTab('catalog')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'catalog'
+                    ? 'border-purple-600 text-purple-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
               >
-                Disconnect All
+                <Grid className="w-4 h-4 inline mr-1" />
+                Catalog
+              </button>
+              <button
+                onClick={() => setActiveTab('connected')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'connected'
+                    ? 'border-purple-600 text-purple-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Plug className="w-4 h-4 inline mr-1" />
+                Connected ({connectedApps.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'settings'
+                    ? 'border-purple-600 text-purple-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Settings className="w-4 h-4 inline mr-1" />
+                Settings
               </button>
             </div>
           </div>
-        )}
-      </div>
+
+          {/* Content */}
+          <div className="p-6">
+            {activeTab === 'catalog' && (
+              <div className="space-y-4">
+                {/* Search */}
+                <div className="flex gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search services..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <div className="flex bg-gray-100 rounded-lg p-1">
+                    <button
+                      onClick={() => setViewMode('grid')}
+                      className={`p-2 rounded-md ${viewMode === 'grid' ? 'bg-white shadow-sm' : ''}`}
+                    >
+                      <Grid className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setViewMode('list')}
+                      className={`p-2 rounded-md ${viewMode === 'list' ? 'bg-white shadow-sm' : ''}`}
+                    >
+                      <List className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Catalog Grid */}
+                {viewMode === 'grid' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {catalog.map((toolkit) => (
+                      <ToolkitCard
+                        key={toolkit.slug}
+                        toolkit={toolkit}
+                        isConnected={isConnected(toolkit.slug)}
+                        onConnect={() => connectApp(toolkit)}
+                        isConnecting={connectingApp === toolkit.slug}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {catalog.map((toolkit) => (
+                      <ToolkitListItem
+                        key={toolkit.slug}
+                        toolkit={toolkit}
+                        isConnected={isConnected(toolkit.slug)}
+                        onConnect={() => connectApp(toolkit)}
+                        isConnecting={connectingApp === toolkit.slug}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'connected' && (
+              <div className="space-y-4">
+                {connectedApps.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <Cloud className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>No connected apps yet</p>
+                    <p className="text-sm mt-2">Go to Catalog to connect your first service</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={async () => {
+                          try {
+                            await composioApi.syncAllTools();
+                            await refetchApps();
+                            alert('All tools synced successfully!');
+                          } catch (error: any) {
+                            alert(error.response?.data?.error?.message || 'Failed to sync tools');
+                          }
+                        }}
+                        className="px-4 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center gap-2"
+                      >
+                        <Cloud className="w-4 h-4" />
+                        Sync All Tools
+                      </button>
+                    </div>
+                    <div className="space-y-3">
+                    {connectedApps.map((app) => (
+                      <div
+                        key={app.id}
+                        className={`flex items-center justify-between p-4 border rounded-lg ${
+                          app.status === 'active' ? 'border-green-200 bg-green-50' : 'border-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          {app.logo_url ? (
+                            <img src={app.logo_url} alt={app.display_name} className="w-10 h-10 rounded object-contain" />
+                          ) : (
+                            <div className="w-10 h-10 bg-gray-200 rounded flex items-center justify-center text-gray-500 font-bold">
+                              {app.display_name[0]}
+                            </div>
+                          )}
+                          <div>
+                            <h4 className="font-medium text-gray-900">{app.display_name}</h4>
+                            <div className="flex items-center gap-2 text-sm">
+                              <StatusBadge status={app.status} />
+                              <span className="text-gray-500">via Composio</span>
+                            </div>
+                            {app.error_message && (
+                              <p className="text-xs text-red-600 mt-1">{app.error_message}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {app.status === 'pending' && (
+                            <button
+                              onClick={() => checkStatus(app.id)}
+                              className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-md"
+                            >
+                              <Loader2 className="w-4 h-4 inline mr-1" />
+                              Check Status
+                            </button>
+                          )}
+                          
+                          {app.status === 'active' && (
+                            <button
+                              onClick={() => syncTools(app.id)}
+                              className="px-3 py-1.5 text-sm text-green-600 hover:bg-green-50 rounded-md"
+                            >
+                              <Cloud className="w-4 h-4 inline mr-1" />
+                              Sync Tools
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => disconnectApp(app)}
+                            className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-md"
+                          >
+                            <Trash2 className="w-4 h-4 inline mr-1" />
+                            Disconnect
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'settings' && (
+              <div className="space-y-6">
+                <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle2 className="w-5 h-5 text-green-600" />
+                    <h4 className="font-semibold text-green-900">Connected</h4>
+                  </div>
+                  <p className="text-sm text-green-800">
+                    API Key: {config.api_key_preview}
+                  </p>
+                </div>
+
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-gray-900 mb-3">Update API Key</h4>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder="New API key..."
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    <button
+                      onClick={saveApiKey}
+                      disabled={isSaving || !apiKey.trim()}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
+                    >
+                      {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Update'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-red-50 rounded-lg p-4 border border-red-200">
+                  <h4 className="text-sm font-medium text-red-900 mb-2">Danger Zone</h4>
+                  <p className="text-sm text-red-700 mb-3">
+                    Disconnecting will remove all Composio integrations and tools.
+                  </p>
+                  <button
+                    onClick={async () => {
+                      if (!confirm('Are you sure? This will disconnect all apps.')) return;
+                      await composioApi.deleteComposioConfig();
+                      await queryClient.invalidateQueries('composio-config');
+                    }}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700"
+                  >
+                    Disconnect All
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -577,9 +615,7 @@ function ToolkitListItem({ toolkit, isConnected, onConnect, isConnecting }: Tool
         onClick={onConnect}
         disabled={isConnected || isConnecting}
         className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-          isConnected
-            ? 'text-green-700 bg-green-100'
-            : 'text-purple-600 hover:bg-purple-50'
+          isConnected ? 'text-green-700 bg-green-100' : 'text-purple-600 hover:bg-purple-50'
         }`}
       >
         {isConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : isConnected ? 'Connected' : 'Connect'}

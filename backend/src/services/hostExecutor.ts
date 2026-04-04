@@ -55,17 +55,25 @@ export async function isHostExecutorAvailable(): Promise<boolean> {
 export async function setupTelegramChannel(
   botToken: string,
   dmPolicy: 'pairing' | 'open' | 'restricted' = 'pairing',
-  allowlist: string[] = []
+  allowlist: string[] = [],
+  accountId: string = 'default'
 ): Promise<void> {
+  // Enable telegram channel
   await execOnHost('openclaw config set channels.telegram.enabled true');
-  await execOnHost(`openclaw config set channels.telegram.botToken "${botToken}"`);
-  await execOnHost(`openclaw config set channels.telegram.dmPolicy "${dmPolicy}"`);
+  await execOnHost('openclaw config set channels.telegram.dmPolicy "pairing"');
+  
+  // Set up account-specific configuration
+  await execOnHost(`openclaw config set channels.telegram.accounts.${accountId}.botToken "${botToken}"`);
+  await execOnHost(`openclaw config set channels.telegram.accounts.${accountId}.dmPolicy "${dmPolicy}"`);
+  await execOnHost(`openclaw config set channels.telegram.accounts.${accountId}.groupPolicy "allowlist"`);
+  await execOnHost(`openclaw config set channels.telegram.accounts.${accountId}.streaming "partial"`);
   
   if (allowlist.length > 0) {
-    await execOnHost(`openclaw config set channels.telegram.allowFrom '${JSON.stringify(allowlist)}'`);
+    // Use jq to set array properly
+    await execOnHost(`cat ~/.openclaw/openclaw.json | jq '.channels.telegram.accounts.${accountId}.allowFrom = ${JSON.stringify(allowlist)}' > /tmp/oc.json && mv /tmp/oc.json ~/.openclaw/openclaw.json`);
   }
   
-  logger.info('Telegram channel configured');
+  logger.info(`Telegram channel configured for account: ${accountId}`);
 }
 
 export async function removeTelegramChannel(): Promise<void> {
@@ -76,4 +84,70 @@ export async function removeTelegramChannel(): Promise<void> {
 export async function restartGateway(): Promise<void> {
   await execOnHost('systemctl restart openclaw-gateway');
   logger.info('Gateway restarted');
+}
+
+export async function addChannelBinding(
+  channelType: string,
+  accountId: string,
+  agentId: string
+): Promise<void> {
+  // Get current bindings
+  const result = await execOnHost('cat ~/.openclaw/openclaw.json | jq ".bindings // []"');
+  let bindings: any[] = [];
+  
+  try {
+    if (result.stdout) {
+      bindings = JSON.parse(result.stdout);
+    }
+  } catch (e) {
+    logger.warn('Failed to parse bindings, starting fresh');
+  }
+  
+  // Remove existing binding for this channel+account
+  bindings = bindings.filter((b: any) => 
+    !(b.match?.channel === channelType && b.match?.accountId === accountId)
+  );
+  
+  // Add new binding
+  bindings.push({
+    type: 'route',
+    agentId: agentId,
+    match: {
+      channel: channelType,
+      accountId: accountId
+    }
+  });
+  
+  // Update config
+  const bindingsJson = JSON.stringify(bindings).replace(/"/g, '\\"');
+  await execOnHost(`cat ~/.openclaw/openclaw.json | jq ".bindings = ${bindingsJson}" > /tmp/oc.json && mv /tmp/oc.json ~/.openclaw/openclaw.json`);
+  
+  logger.info(`Binding added: ${channelType}/${accountId} -> ${agentId}`);
+}
+
+export async function removeChannelBinding(
+  channelType: string,
+  accountId: string
+): Promise<void> {
+  const result = await execOnHost('cat ~/.openclaw/openclaw.json | jq ".bindings // []"');
+  let bindings: any[] = [];
+  
+  try {
+    if (result.stdout) {
+      bindings = JSON.parse(result.stdout);
+    }
+  } catch (e) {
+    logger.warn('Failed to parse bindings');
+    return;
+  }
+  
+  // Remove binding for this channel+account
+  bindings = bindings.filter((b: any) => 
+    !(b.match?.channel === channelType && b.match?.accountId === accountId)
+  );
+  
+  const bindingsJson = JSON.stringify(bindings).replace(/"/g, '\\"');
+  await execOnHost(`cat ~/.openclaw/openclaw.json | jq ".bindings = ${bindingsJson}" > /tmp/oc.json && mv /tmp/oc.json ~/.openclaw/openclaw.json`);
+  
+  logger.info(`Binding removed: ${channelType}/${accountId}`);
 }
