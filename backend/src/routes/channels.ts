@@ -32,11 +32,28 @@ router.get('/', authenticateToken, asyncHandler(async (req, res) => {
   
   res.json({
     success: true,
-    data: channels.map(c => ({
-      ...c,
-      config: c.config ? JSON.parse(c.config) : {},
-      allow_from: c.allow_from ? JSON.parse(c.allow_from) : [],
-    })),
+    data: channels.map(c => {
+      // Safely parse JSON fields
+      let config = {};
+      let allowFrom = [];
+      try {
+        config = c.config ? JSON.parse(c.config) : {};
+      } catch (e) {
+        logger.error(`Invalid JSON in config for channel ${c.id}: ${c.config}`);
+        config = {};
+      }
+      try {
+        allowFrom = c.allow_from ? JSON.parse(c.allow_from) : [];
+      } catch (e) {
+        logger.error(`Invalid JSON in allow_from for channel ${c.id}: ${c.allow_from}`);
+        allowFrom = [];
+      }
+      return {
+        ...c,
+        config,
+        allow_from: allowFrom,
+      };
+    }),
   });
 }));
 
@@ -51,12 +68,28 @@ router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
   
   if (!channel) throw new NotFoundError('Channel not found');
   
+  // Safely parse JSON fields
+  let config = {};
+  let allowFrom = [];
+  try {
+    config = channel.config ? JSON.parse(channel.config) : {};
+  } catch (e) {
+    logger.error(`Invalid JSON in config for channel ${channel.id}: ${channel.config}`);
+    config = {};
+  }
+  try {
+    allowFrom = channel.allow_from ? JSON.parse(channel.allow_from) : [];
+  } catch (e) {
+    logger.error(`Invalid JSON in allow_from for channel ${channel.id}: ${channel.allow_from}`);
+    allowFrom = [];
+  }
+  
   res.json({
     success: true,
     data: {
       ...channel,
-      config: channel.config ? JSON.parse(channel.config) : {},
-      allow_from: channel.allow_from ? JSON.parse(channel.allow_from) : [],
+      config,
+      allow_from: allowFrom,
     },
   });
 }));
